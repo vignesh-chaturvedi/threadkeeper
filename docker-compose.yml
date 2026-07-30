@@ -34,8 +34,11 @@ services:
 
   # One-shot: applies migrations, then exits. Both app and worker wait on it.
   migrate:
+    image: threadkeeper:local
     build: .
-    command: ["alembic", "upgrade", "head"]
+    # Two steps: our schema, then the checkpointer's. The second cannot run
+    # inside the first — see app/graph/checkpointer.py.
+    command: ["sh", "-c", "alembic upgrade head && python -m app.graph.checkpointer"]
     env_file: [.env]
     environment:
       TK_DATABASE_URL: postgresql://threadkeeper:dev@db:5432/threadkeeper
@@ -50,6 +53,7 @@ services:
     restart: "no"
 
   app:
+    image: threadkeeper:local
     build: .
     command: ["uvicorn", "app.main:api", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     env_file: [.env]
@@ -74,6 +78,7 @@ services:
       start_period: 5s
 
   worker:
+    image: threadkeeper:local
     build: .
     # Same image, different entrypoint. The scheduler loop lands in Phase 06.
     command: ["python", "-m", "app.scheduler.worker"]

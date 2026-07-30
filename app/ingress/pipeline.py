@@ -1,8 +1,11 @@
 """The seam between "a turn is ready" and "here is what to say".
 
-Phase 01 put a fixed acknowledgement here. Phase 02 changes the shape of the
-call rather than its content: the input is now a *merged turn* — everything the
-customer typed during the debounce window, joined — instead of one message.
+Phase 01 put a fixed acknowledgement here. Phase 02 changed the shape of the
+call: the input became a *merged turn* — everything the customer typed during
+the debounce window, joined. Phase 03 finally puts the funnel behind it, and the
+signature still has not changed.
+
+ACK_TEXT survives only as the fallback for a turn that somehow produced nothing.
 
 Two properties this file has to keep, because Phase 03 drops a LangGraph
 invocation into it and both get harder to add later:
@@ -18,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 
+from app.graph import runner
 from app.logging import get_logger
 from app.settings import get_settings
 
@@ -47,4 +51,5 @@ async def compose_reply(conversation_id: str, turn_text: str) -> str:
         # Every message in the burst was a voice note, image or location.
         return UNSUPPORTED_TEXT
 
-    return ACK_TEXT
+    reply = await runner.run_turn(conversation_id, turn_text)
+    return reply or ACK_TEXT

@@ -124,13 +124,20 @@ async def get_thread(phone: str = "919876543210") -> dict[str, Any]:
     _guard()
     ref = customer_ref(phone)
     conversation = await repository.get_or_create_conversation("whatsapp", ref)
-    messages = await repository.thread(str(conversation["id"]))
+    cid = str(conversation["id"])
+    messages = await repository.thread(cid)
+    from app import db
+
+    slot_rows = await db.fetch_all(
+        "SELECT key, value FROM slots WHERE conversation_id = %s ORDER BY key", cid
+    )
     return {
         "conversation_id": str(conversation["id"]),
         "typing": await coalesce.is_typing(str(conversation["id"])),
         "customer_ref": ref,
         "stage": conversation["stage"],
         "status": conversation["status"],
+        "slots": {r["key"]: r["value"] for r in slot_rows},
         "messages": [
             {
                 "id": m["id"],

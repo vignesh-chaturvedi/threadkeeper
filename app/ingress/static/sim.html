@@ -152,6 +152,11 @@
       <div><div class="k">stage</div><div class="v" id="m-stage">—</div></div>
     </div>
 
+    <div class="buf" id="slots-panel" style="border-bottom:1px solid var(--line)">
+      <div class="buf-top"><span>Known slots</span><span id="slots-n">0</span></div>
+      <div class="buf-q" id="slots-body" style="white-space:normal">nothing extracted yet</div>
+    </div>
+
     <div class="buf" id="buf">
       <div class="buf-top">
         <span>Turn buffer · <b id="buf-n">0</b> queued · gen <b id="buf-g">0</b></span>
@@ -245,6 +250,17 @@
     $("m-ref").textContent   = d.customer_ref.slice(0,16)+"…";
     $("m-conv").textContent  = d.conversation_id.slice(0,8)+"…";
     $("m-stage").textContent = d.stage;
+
+    var slots = d.slots || {};
+    var keys = Object.keys(slots);
+    $("slots-n").textContent = keys.length;
+    $("slots-body").innerHTML = keys.length
+      ? keys.map(function(k){
+          var v = slots[k];
+          if (v && typeof v === "object") v = (v.granted === true ? "granted" : JSON.stringify(v));
+          return '<span style="color:var(--accent)">'+k+'</span>=' + String(v);
+        }).join(" &nbsp;·&nbsp; ")
+      : "nothing extracted yet";
 
     var typingEl = $("typing");
     thread.innerHTML = "";

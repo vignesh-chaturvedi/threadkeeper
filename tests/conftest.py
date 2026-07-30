@@ -22,6 +22,14 @@ os.environ.setdefault(
 )
 os.environ.setdefault("TK_REDIS_URL", "redis://localhost:6379/0")
 
+# The suite must never spend money or depend on a network. setdefault rather
+# than hard assignment so `TK_LLM_PROVIDER=gemini uv run pytest` still works when
+# that is what you actually meant — but a developer's .env cannot make it happen
+# by accident. It already did once: the suite silently started calling Gemini,
+# took three minutes instead of thirty seconds, and failed on timing.
+os.environ.setdefault("TK_LLM_PROVIDER", "fake")
+os.environ.setdefault("TK_GEMINI_API_KEY", "")
+
 from app import cache, db
 from app.main import create_app
 from app.settings import get_settings

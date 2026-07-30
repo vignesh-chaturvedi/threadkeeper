@@ -49,7 +49,7 @@ uv run uvicorn app.main:api --reload
 | 00 | Scaffolding, compose topology, migrations, structured logging | ✅ done |
 | 01 | Idempotent webhook ingress + channel adapter | ✅ done |
 | 02 | Turn coalescing: debounce + in-flight cancellation | ✅ done |
-| 03 | Deterministic stage machine on a LangGraph Postgres checkpointer | ⬜ |
+| 03 | Deterministic stage machine on a LangGraph Postgres checkpointer | ✅ done |
 | 04 | Three-tier memory (working / profile / semantic) | ⬜ |
 | 05 | MCP tool server over mock lender APIs | ⬜ |
 | 06 | Follow-up scheduler: ZSET timers, quiet hours, 24h window | ⬜ |
@@ -101,6 +101,18 @@ threadkeeper/
 │  │  ├─ coalesce.py    #   window, generation counter, settle task
 │  │  └─ lock.py        #   per-conversation Redis mutex
 │  ├─ graph/            # LangGraph nodes, edges, stage policy
+│  │  ├─ policy.py      #   decide() — pure, no I/O, no model. The auditable core
+│  │  ├─ nodes.py       #   extract + one node per stage
+│  │  ├─ build.py       #   compiled graph + Postgres checkpointer
+│  │  ├─ runner.py      #   one turn; persists slots + transitions
+│  │  ├─ prompts.py     #   prompts, extraction schema, consent wording
+│  │  ├─ escalation.py  #   the packet a human picks up
+│  │  ├─ replay.py      #   time-travel replay against current code
+│  │  └─ checkpointer.py#   schema setup (NOT in a migration — see the file)
+│  ├─ llm/              # provider seam: gemini | fake
+│  │  ├─ base.py        #   extract() and reply() are separate calls
+│  │  ├─ gemini.py      #   REST via httpx, retry + token accounting
+│  │  └─ fake.py        #   deterministic, offline, Hinglish-aware
 │  ├─ memory/           # working / profile / semantic tiers
 │  ├─ tools/            # MCP server + mock lender APIs
 │  ├─ scheduler/        # ZSET worker, backoff, quiet hours
@@ -138,6 +150,12 @@ threadkeeper/
 | **A monotonic generation counter in Redis, not just `Task.cancel()`** | `cancel()` only reaches tasks in *this* process. With two replicas the other one never hears about it, so every turn re-checks its generation immediately before sending and drops the reply if it moved. The local cancel is the fast path; the counter is the correctness guarantee. |
 | **The buffer is drained only after the reply ships** | Drain-then-generate loses the customer's words whenever a turn is superseded. There is a test asserting "first thought" survives into the next turn. |
 | **A locked conversation stands down rather than queues** | If another worker owns it, waiting your turn just produces the second reply this whole phase exists to prevent. |
+| **The stage policy is a pure function** | `decide()` has no I/O, no model call and no framework, so every routing rule in the product is unit-tested in microseconds. Prompt-based gating would need a model call per assertion, would be non-deterministic, and would still only tell you what happened once. |
+| **Extraction and reply are two calls** | One structured-output call at temperature 0 decides what is *true*; a separate call writes prose. Mixing them makes both worse: extraction can then be scored against a labelled set without a human reading anything, and the reply prompt can change without silently altering what the system believes. |
+| **Consent wording is fixed, never generated** | Every other stage's words come from the model. Consent does not — a paraphrase each time would make the wording hash, and therefore the whole consent ledger, meaningless. |
+| **State is duplicated into tables on purpose** | The checkpoint is the source of truth for *resuming*; `slots` and `stage_transitions` are the source of truth for *asking questions*. "How many leads reached KYC without a PAN" should be SQL, not a script that deserialises checkpoints. |
+| **Every transition records which condition fired** | `reason` is not decoration. Months later "why did this conversation jump to escalate" is a row rather than a reconstruction — and it is what the Phase 10 funnel chart is built from. |
+| **Checkpointer schema setup is not in a migration** | `PostgresSaver.setup()` issues `CREATE INDEX CONCURRENTLY`, which waits for every open transaction — including the migration's own. It hangs forever while holding locks. It runs as a second step after `alembic upgrade head`. |
 | **The simulator signs, the browser posts** | The demo exercises the real ingress path including HMAC verification, and "resend" is a byte-identical redelivery rather than a mock of one. |
 
 ---

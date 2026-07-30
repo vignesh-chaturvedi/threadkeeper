@@ -99,6 +99,14 @@ def create_app() -> FastAPI:
     async def root() -> dict[str, str]:
         return {"service": "threadkeeper", "version": app.version, "docs": "/docs"}
 
+    @app.get("/console/escalations", tags=["console"])
+    async def escalations(limit: int = 50) -> dict[str, object]:
+        """The human queue. Phase 06 puts a UI on this; the packet is the product."""
+        from app.graph import escalation
+
+        queue = await escalation.open_queue(limit)
+        return {"open": len(queue), "escalations": queue}
+
     app.include_router(webhook.router)
 
     # The simulator is a development affordance, not a feature. Settings force

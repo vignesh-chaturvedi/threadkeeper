@@ -91,6 +91,34 @@ class Settings(BaseSettings):
         ),
     )
 
+    # --- model -------------------------------------------------------------
+    llm_provider: Literal["gemini", "fake"] = Field(
+        default="fake",
+        description="'fake' is deterministic and offline — the default so tests never spend money.",
+    )
+    gemini_api_key: str = ""
+    gemini_api_base: str = "https://generativelanguage.googleapis.com/v1beta"
+    gemini_reply_model: str = "gemini-3.5-flash-lite"
+    gemini_extract_model: str = Field(
+        default="gemini-3.5-flash-lite",
+        description=(
+            "Extraction may use a smaller model than the reply. Separate knobs so that "
+            "choice can be measured rather than assumed."
+        ),
+    )
+    llm_timeout_s: float = 20.0
+    llm_max_attempts: int = 3
+    llm_max_output_tokens: int = 320
+
+    # --- funnel ------------------------------------------------------------
+    history_turns: int = Field(
+        default=10,
+        description=(
+            "Messages of context passed to the reply call. Phase 04 replaces this "
+            "count with a token budget."
+        ),
+    )
+
     # --- privacy -----------------------------------------------------------
     customer_ref_secret: str = Field(
         default=DEV_REF_SECRET_SENTINEL,

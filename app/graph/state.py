@@ -22,6 +22,8 @@ class FunnelState(TypedDict, total=False):
     # What we know, and how confident we are. Mirrored into the `slots` table
     # so it is queryable without deserialising a checkpoint.
     slots: dict[str, Any]
+    # key -> 'extracted' | 'confirmed' | 'api'. Drives app.memory.conflict.
+    slot_sources: dict[str, str]
 
     # {granted: bool, wording_hash: str, at: str}. Separate from slots because
     # consent is not a fact about the customer, it is a legal event with a
@@ -30,6 +32,16 @@ class FunnelState(TypedDict, total=False):
 
     turn_text: str
     reply: str
+
+    # Assembled by app.memory each turn and passed straight through. Not
+    # checkpointed as truth — they are a *view* of state that is rebuilt from
+    # the tables every turn, so a prompt change takes effect immediately rather
+    # than only for conversations that start afterwards.
+    history: list[dict[str, str]]
+    profile_block: str
+    recall_block: str
+    # True only on the opening turn of a conversation with a known customer.
+    returning: bool
 
     # Set by extraction, consumed by the policy, cleared each turn.
     interrupt: str | None
@@ -50,6 +62,7 @@ def new_state(conversation_id: str, stage: str = "intent_route") -> FunnelState:
         conversation_id=conversation_id,
         stage=stage,
         slots={},
+        slot_sources={},
         consent={},
         turn_text="",
         reply="",

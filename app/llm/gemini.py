@@ -21,7 +21,7 @@ from typing import Any
 
 import httpx
 
-from app.llm.base import Extraction, ModelError, Reply, Usage
+from app.llm.base import Embedding, Extraction, ModelError, Reply, Usage
 from app.logging import get_logger
 from app.settings import get_settings
 
@@ -43,11 +43,13 @@ class GeminiProvider:
         self._max_attempts = settings.llm_max_attempts
 
     # ------------------------------------------------------------------ http
-    async def _post(self, model: str, body: dict[str, Any]) -> dict[str, Any]:
+    async def _post(
+        self, model: str, body: dict[str, Any], endpoint: str = "generateContent"
+    ) -> dict[str, Any]:
         if not self._key:
             raise ModelError("TK_GEMINI_API_KEY is not set")
 
-        url = f"{self._base}/models/{model}:generateContent"
+        url = f"{self._base}/models/{model}:{endpoint}"
         headers = {"x-goog-api-key": self._key, "content-type": "application/json"}
         last: str = "unknown"
 
@@ -114,6 +116,21 @@ class GeminiProvider:
         if not isinstance(data, dict):
             raise ModelError(f"extraction was not an object: {raw[:120]}")
         return Extraction(data=data, usage=self._usage(payload))
+
+    # ------------------------------------------------------------- embedding
+    async def embed(self, *, text: str) -> Embedding:
+        settings = get_settings()
+        body = {
+            "content": {"parts": [{"text": text}]},
+            # Pinned: the column type is vector(N) and N cannot change without a
+            # migration, so the dimensionality is a schema decision, not a knob.
+            "outputDimensionality": settings.embedding_dimensions,
+        }
+        payload = await self._post(settings.embedding_model, body, endpoint="embedContent")
+        values = (payload.get("embedding") or {}).get("values") or []
+        if len(values) != settings.embedding_dimensions:
+            raise ModelError(f"expected {settings.embedding_dimensions} dims, got {len(values)}")
+        return Embedding(vector=[float(v) for v in values], usage=Usage(calls=1))
 
     # ----------------------------------------------------------------- reply
     async def reply(self, *, system: str, user: str, history: list[dict[str, str]]) -> Reply:

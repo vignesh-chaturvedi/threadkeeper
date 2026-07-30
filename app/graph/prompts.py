@@ -149,14 +149,49 @@ def render_extraction_prompt(stage: str, slots: dict[str, Any], turn_text: str) 
     )
 
 
-def render_reply_prompt(stage: str, slots: dict[str, Any], turn_text: str) -> str:
-    return (
-        f"CURRENT STAGE: {stage}\n"
-        f"WHAT TO DO: {STAGE_GUIDANCE.get(stage, STAGE_GUIDANCE['intent_route'])}\n"
-        f"KNOWN ABOUT THIS CUSTOMER: "
-        f"{json.dumps(slots, sort_keys=True, ensure_ascii=False)}\n\n"
-        f"CUSTOMER JUST SAID:\n{turn_text}"
-    )
+def render_reply_prompt(
+    stage: str,
+    turn_text: str,
+    profile_block: str = "",
+    recall_block: str = "",
+    returning: bool = False,
+) -> str:
+    """Tier 2 and tier 3 are rendered text, not JSON.
+
+    The token calibration found JSON-shaped text costs roughly twice as many
+    tokens per character as prose, and the model has no use for the braces.
+    """
+    parts = [
+        f"CURRENT STAGE: {stage}",
+        f"WHAT TO DO: {STAGE_GUIDANCE.get(stage, STAGE_GUIDANCE['intent_route'])}",
+    ]
+    if profile_block:
+        parts.append(f"\nKNOWN ABOUT THIS CUSTOMER:\n{profile_block}")
+    if recall_block:
+        # `returning` is the difference between memory that pays for itself and
+        # memory that is merely present. Measured: with the hedged instruction
+        # alone the model never referenced a prior objection, because the stage
+        # guidance told it to ask for income and it correctly obeyed the stage.
+        # Recall only earns its tokens where a stage is told to use it.
+        if returning:
+            parts.append(
+                f"\n{recall_block}\n"
+                "This is the FIRST message of a NEW conversation with a customer "
+                "who has spoken to us before. Open by briefly and warmly "
+                "acknowledging what put them off last time, in their own words, "
+                "then continue with the step above. One short sentence for the "
+                "acknowledgement — do not re-litigate it, and do not promise "
+                "anything has changed."
+            )
+        else:
+            parts.append(
+                f"\n{recall_block}\n"
+                "Background only. Do not raise it unprompted mid-conversation — "
+                "referring to something they said months ago out of nowhere is "
+                "unsettling, not helpful."
+            )
+    parts.append(f"\nCUSTOMER JUST SAID:\n{turn_text}")
+    return "\n".join(parts)
 
 
 def prompt_hash() -> str:

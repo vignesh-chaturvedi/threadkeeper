@@ -110,6 +110,28 @@ class Settings(BaseSettings):
     llm_max_attempts: int = 3
     llm_max_output_tokens: int = 320
 
+    # --- memory ------------------------------------------------------------
+    working_budget_tokens: int = Field(
+        default=1200,
+        description=(
+            "Tier 1 budget for recent turns. Trimmed by estimated tokens, not "
+            "message count — see app/memory/tokens.py for the calibration."
+        ),
+    )
+    enable_semantic_memory: bool = Field(
+        default=True,
+        description="Tier 3. Turned off by evals/memory_ab.py to measure what it is worth.",
+    )
+    recall_top_k: int = 2
+    embedding_model: str = "gemini-embedding-2"
+    embedding_dimensions: int = Field(
+        default=768,
+        description=(
+            "A schema decision, not a knob: the pgvector column is vector(768) "
+            "and changing this needs a migration."
+        ),
+    )
+
     # --- funnel ------------------------------------------------------------
     history_turns: int = Field(
         default=10,

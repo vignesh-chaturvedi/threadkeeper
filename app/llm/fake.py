@@ -18,10 +18,13 @@ only understands English would quietly make the tests easier than reality.
 
 from __future__ import annotations
 
+import hashlib
+import math
 import re
 from typing import Any
 
-from app.llm.base import Extraction, Reply, Usage
+from app.llm.base import Embedding, Extraction, Reply, Usage
+from app.settings import get_settings
 
 # --------------------------------------------------------------------------
 # Patterns. Kept blunt on purpose: this is a fixture, not a model.
@@ -149,6 +152,23 @@ class FakeProvider:
         stage = stage_match.group(1) if stage_match else "intent_route"
         text = _CANNED.get(stage, _CANNED["intent_route"])
         return Reply(text=text, usage=Usage(input_tokens=len(user) // 4, output_tokens=24, calls=1))
+
+    async def embed(self, *, text: str) -> Embedding:
+        """Hashing-trick bag-of-words, L2-normalised.
+
+        Not semantic — it has no idea "fees" and "charges" are related. But it
+        is genuinely *lexical*: texts sharing words get higher cosine similarity,
+        which is enough to exercise retrieval mechanics offline and deterministically.
+        Anything measuring whether retrieval actually helps has to run against a
+        real embedding model, and `evals/memory_ab.py` says so.
+        """
+        dims = get_settings().embedding_dimensions
+        vector = [0.0] * dims
+        for word in re.findall(r"\w+", text.lower(), re.UNICODE):
+            bucket = int(hashlib.sha256(word.encode("utf-8")).hexdigest()[:8], 16) % dims
+            vector[bucket] += 1.0
+        norm = math.sqrt(sum(v * v for v in vector)) or 1.0
+        return Embedding(vector=[v / norm for v in vector], usage=Usage(calls=1))
 
 
 _CANNED = {

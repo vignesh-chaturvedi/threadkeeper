@@ -50,7 +50,7 @@ uv run uvicorn app.main:api --reload
 | 01 | Idempotent webhook ingress + channel adapter | ✅ done |
 | 02 | Turn coalescing: debounce + in-flight cancellation | ✅ done |
 | 03 | Deterministic stage machine on a LangGraph Postgres checkpointer | ✅ done |
-| 04 | Three-tier memory (working / profile / semantic) | ⬜ |
+| 04 | Three-tier memory (working / profile / semantic) | ✅ done |
 | 05 | MCP tool server over mock lender APIs | ⬜ |
 | 06 | Follow-up scheduler: ZSET timers, quiet hours, 24h window | ⬜ |
 | 07 | PII tokenization, consent ledger, audit log | ⬜ |
@@ -114,6 +114,10 @@ threadkeeper/
 │  │  ├─ gemini.py      #   REST via httpx, retry + token accounting
 │  │  └─ fake.py        #   deterministic, offline, Hinglish-aware
 │  ├─ memory/           # working / profile / semantic tiers
+│  │  ├─ tokens.py      #   estimator, calibrated vs countTokens
+│  │  ├─ profile.py     #   tier 2 — slots rendered as compact facts
+│  │  ├─ semantic.py    #   tier 3 — pgvector over conversation summaries
+│  │  └─ conflict.py    #   provenance > recency, and sticky decisions
 │  ├─ tools/            # MCP server + mock lender APIs
 │  ├─ scheduler/        # ZSET worker, backoff, quiet hours
 │  ├─ privacy/          # tokenizer, consent ledger, audit log
@@ -124,6 +128,8 @@ threadkeeper/
 │  ├─ settings.py       # the only module that reads the environment
 │  └─ main.py           # FastAPI factory, health probes
 ├─ evals/               # personas, runner, labelled intent set
+│  ├─ calibrate_tokens.py  # measures the estimator against the real tokenizer
+│  └─ memory_ab.py         # what tier 3 is actually worth
 ├─ dashboard/           # funnel + drop-off view
 ├─ infra/               # terraform
 ├─ migrations/          # alembic, hand-written DDL
@@ -156,7 +162,27 @@ threadkeeper/
 | **State is duplicated into tables on purpose** | The checkpoint is the source of truth for *resuming*; `slots` and `stage_transitions` are the source of truth for *asking questions*. "How many leads reached KYC without a PAN" should be SQL, not a script that deserialises checkpoints. |
 | **Every transition records which condition fired** | `reason` is not decoration. Months later "why did this conversation jump to escalate" is a row rather than a reconstruction — and it is what the Phase 10 funnel chart is built from. |
 | **Checkpointer schema setup is not in a migration** | `PostgresSaver.setup()` issues `CREATE INDEX CONCURRENTLY`, which waits for every open transaction — including the migration's own. It hangs forever while holding locks. It runs as a second step after `alembic upgrade head`. |
+| **Slots over retrieval** | In a funnel most questions are "what is their income", not "what did they complain about". Tier 2 is a `SELECT` rendered as four lines — exact, cheap, debuggable, identical bytes for identical facts. Tier 3 exists, scoped to one customer's prior conversations, and was measured rather than assumed. |
+| **One embedding per conversation, not per message** | "hi", "ok" and "haan" are the most frequent things anyone types. A per-message index spends its top-k on greetings; a summary written once at close is the unit that answers "what happened last time". |
+| **The token estimator is calibrated, not guessed** | `evals/calibrate_tokens.py` measures it against Gemini's `countTokens`. Two findings: Devanagari is *not* denser than English (4.69 vs 4.40 chars/token — the opposite of my assumption), and JSON-shaped text is (2.33), which is why the profile renders as lines. Deliberately asymmetric: it never under-estimates, because over-estimating trims history and under-estimating overflows the window. |
+| **Provenance outranks recency** | A value the customer confirmed beats a newer one inferred from a passing remark. Within the same provenance, newer wins — "4 lakh, sorry, 6 lakh" is a correction. Opt-out and consent are sticky: only a *confirmed* signal can reverse them, because an extraction returning `false` usually means "not mentioned", and treating that as re-consent messages someone who said stop. |
 | **The simulator signs, the browser posts** | The demo exercises the real ingress path including HMAC verification, and "resend" is a byte-identical redelivery rather than a mock of one. |
+
+---
+
+## Measured, not assumed
+
+| Question | Answer | How |
+|---|---|---|
+| Is the token estimator safe? | Never under-estimates across 13 samples; +34.7% mean over-estimate | `uv run python -m evals.calibrate_tokens` |
+| What is tier 3 worth? | **0 → 100%** objection recall on a returning customer, for **+83 context tokens/turn**, 0 false positives on the control | `uv run python -m evals.memory_ab` |
+
+The second number has a caveat worth stating: retrieval on its own bought
+**nothing**. With the prior objection sitting in the prompt but only a hedged
+"use if relevant" instruction, recall was 0/2 — the model correctly followed the
+stage guidance instead. The gain came from telling one specific moment, the
+opening turn of a return visit, to use it. The tokens were being paid either
+way. Sample is 3 scenarios; Phase 08 scales it.
 
 ---
 

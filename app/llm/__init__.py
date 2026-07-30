@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from app.llm.base import Extraction, ModelError, ModelProvider, Reply, Usage
+from app.llm.base import Embedding, Extraction, ModelError, ModelProvider, Reply, Usage
 from app.llm.fake import FakeProvider
 from app.llm.gemini import GeminiProvider
 from app.logging import get_logger
@@ -30,6 +30,7 @@ def get_provider() -> ModelProvider:
 
 
 __all__ = [
+    "Embedding",
     "Extraction",
     "ModelError",
     "ModelProvider",

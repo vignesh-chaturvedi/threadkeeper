@@ -19,30 +19,57 @@ from app.graph.policy import decide
 from app.graph.state import FunnelState
 from app.llm import ModelError, get_provider
 from app.logging import get_logger
+from app.memory import conflict
 
 log = get_logger(__name__)
 
-# What extraction is allowed to overwrite versus merely fill in. A value the
-# customer confirmed outranks one we inferred from a passing remark — the
-# conflict rule Phase 04 formalises across the whole memory stack.
-_NEVER_DOWNGRADE = {"consent_granted", "opted_out"}
+# Answering a direct question is stronger evidence than a value inferred from a
+# passing remark, so the two are recorded with different provenance and the
+# conflict rule arbitrates between them.
+_CONFIRMED_AT_STAGE = {
+    "consent": {"consent_granted"},
+    "kyc_collect": {"pan_status"},
+}
 
 
-def _merge_slots(known: dict[str, Any], extracted: dict[str, Any]) -> dict[str, Any]:
-    """Newer beats older, except where that would silently reverse a decision.
+def _merge_slots(
+    known: dict[str, Any],
+    sources: dict[str, str],
+    extracted: dict[str, Any],
+    stage: str,
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """Apply the documented conflict rule, slot by slot.
 
-    A customer who said 4 lakh and now says 6 lakh means 6 — that is a
-    correction. A customer who opted out and whose next message merely fails to
-    repeat it has not opted back in.
+    The rule itself lives in app/memory/conflict.py so it can be read and tested
+    without a graph, a database or a model anywhere near it.
     """
+    confirmed_here = _CONFIRMED_AT_STAGE.get(stage, set())
+    now = datetime.now(UTC)
+
     merged = dict(known)
+    merged_sources = dict(sources)
+
     for key, value in extracted.items():
         if value is None:
             continue
-        if key in _NEVER_DOWNGRADE and known.get(key) and not value:
-            continue
-        merged[key] = value
-    return merged
+        incoming = conflict.SlotValue(
+            value=value,
+            source="confirmed" if key in confirmed_here else "extracted",
+            updated_at=now,
+        )
+        existing = (
+            conflict.SlotValue(value=known[key], source=sources.get(key, "extracted"))
+            if key in known
+            else None
+        )
+        outcome = conflict.resolve(key, existing, incoming)
+        if outcome.changed:
+            merged[key] = outcome.winner.value
+            merged_sources[key] = outcome.winner.source
+        elif outcome.reason != "unchanged":
+            log.info("slot_conflict", key=key, kept=outcome.reason)
+
+    return merged, merged_sources
 
 
 def _add_usage(state: FunnelState, usage: Any) -> dict[str, int]:
@@ -88,10 +115,16 @@ async def extract_slots(state: FunnelState) -> dict[str, Any]:
             "at": datetime.now(UTC).isoformat(),
         }
 
-    slots = _merge_slots(known, {k: v for k, v in extracted.items() if k != "consent_granted"})
+    slots, sources = _merge_slots(
+        known,
+        state.get("slot_sources") or {},
+        {k: v for k, v in extracted.items() if k != "consent_granted"},
+        stage,
+    )
 
     patch: dict[str, Any] = {
         "slots": slots,
+        "slot_sources": sources,
         "consent": consent,
         "interrupt": extracted.get("interrupt"),
         "escalate": extracted.get("interrupt") == "escalate",
@@ -124,12 +157,17 @@ def route(state: FunnelState) -> str:
 # ---------------------------------------------------------------------------
 async def _speak(state: FunnelState, stage: str) -> dict[str, Any]:
     provider = get_provider()
-    slots = state.get("slots") or {}
 
     try:
         result = await provider.reply(
             system=prompts.REPLY_SYSTEM,
-            user=prompts.render_reply_prompt(stage, slots, state.get("turn_text", "")),
+            user=prompts.render_reply_prompt(
+                stage,
+                state.get("turn_text", ""),
+                profile_block=state.get("profile_block", ""),
+                recall_block=state.get("recall_block", ""),
+                returning=bool(state.get("returning")),
+            ),
             history=state.get("history", []),  # type: ignore[arg-type]
         )
         text, usage = result.text, result.usage

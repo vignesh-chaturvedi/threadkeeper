@@ -43,6 +43,12 @@ class Extraction:
 
 
 @dataclass(slots=True)
+class Embedding:
+    vector: list[float] = field(default_factory=list)
+    usage: Usage = field(default_factory=Usage)
+
+
+@dataclass(slots=True)
 class Reply:
     text: str = ""
     usage: Usage = field(default_factory=Usage)
@@ -59,3 +65,5 @@ class ModelProvider(Protocol):
     async def extract(self, *, system: str, user: str, schema: dict[str, Any]) -> Extraction: ...
 
     async def reply(self, *, system: str, user: str, history: list[dict[str, str]]) -> Reply: ...
+
+    async def embed(self, *, text: str) -> Embedding: ...

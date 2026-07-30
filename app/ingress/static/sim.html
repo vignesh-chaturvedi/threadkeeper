@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Threadkeeper · WhatsApp simulator</title>
+<style>
+  :root{
+    --ink:#0c0e13; --ink-2:#10131a; --line:#1e2431; --line-2:#2a3243;
+    --text:#e7e5df; --text-2:#a6acba; --dim:#6d7484;
+    --accent:#9db4ff; --accent-deep:#6d8bff; --warn:#e0a24a; --ok:#7fb98f;
+    --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ink);color:var(--text);font-family:var(--sans);
+       font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
+  .shell{display:grid;grid-template-columns:minmax(0,380px) minmax(0,1fr);
+         gap:0;height:100vh;max-width:1180px;margin:0 auto}
+
+  /* ---------- phone ---------- */
+  .phone{display:flex;flex-direction:column;border-right:1px solid var(--line);min-width:0}
+  .phone-head{padding:14px 18px;border-bottom:1px solid var(--line);background:var(--ink-2);
+              display:flex;align-items:center;gap:11px}
+  .avatar{width:34px;height:34px;border-radius:50%;background:var(--accent-deep);
+          display:grid;place-items:center;font-weight:600;color:var(--ink);flex-shrink:0}
+  .who{font-weight:500}
+  .who small{display:block;font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;
+             text-transform:uppercase;color:var(--dim);font-weight:400}
+
+  .thread{flex:1;overflow-y:auto;padding:18px;display:flex;flex-direction:column;gap:8px}
+  .bub{max-width:78%;padding:8px 12px;border-radius:12px;font-size:13.5px;
+       white-space:pre-wrap;word-break:break-word;position:relative}
+  .bub.out{align-self:flex-end;background:#2b3b6b;border-bottom-right-radius:3px}
+  .bub.in{align-self:flex-start;background:var(--ink-2);border:1px solid var(--line);
+          border-bottom-left-radius:3px}
+  .bub .t{display:block;font-family:var(--mono);font-size:9px;color:var(--dim);margin-top:4px}
+  .empty{color:var(--dim);font-size:13px;text-align:center;margin:auto;max-width:26ch}
+
+  .composer{border-top:1px solid var(--line);padding:12px;background:var(--ink-2)}
+  .row{display:flex;gap:8px}
+  input,button,select{font-family:inherit;font-size:13px}
+  input[type=text]{flex:1;min-width:0;background:var(--ink);color:var(--text);
+    border:1px solid var(--line-2);border-radius:18px;padding:9px 14px;outline:none}
+  input[type=text]:focus{border-color:var(--accent-deep)}
+  .send{background:var(--accent-deep);color:var(--ink);border:none;border-radius:50%;
+        width:36px;height:36px;cursor:pointer;font-size:15px;flex-shrink:0}
+  .send:hover{background:var(--accent)}
+  .tools{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  .tools button{background:transparent;color:var(--text-2);border:1px solid var(--line-2);
+    padding:4px 9px;cursor:pointer;font-family:var(--mono);font-size:9.5px;
+    letter-spacing:.08em;text-transform:uppercase;transition:.15s}
+  .tools button:hover{border-color:var(--accent-deep);color:var(--accent)}
+  .tools button.warn:hover{border-color:var(--warn);color:var(--warn)}
+
+  /* ---------- inspector ---------- */
+  .side{display:flex;flex-direction:column;min-width:0;background:var(--ink)}
+  .side-head{padding:14px 20px;border-bottom:1px solid var(--line);
+    display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+  .side-head h1{font-size:14px;margin:0;font-weight:500}
+  .side-head .sub{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--dim)}
+
+  .meta{display:flex;flex-wrap:wrap;gap:1px;background:var(--line);border-bottom:1px solid var(--line)}
+  .meta div{background:var(--ink-2);padding:9px 14px;flex:1 1 120px;min-width:0}
+  .meta .k{font-family:var(--mono);font-size:8.5px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--dim)}
+  .meta .v{font-family:var(--mono);font-size:11px;color:var(--text);margin-top:3px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  .log{flex:1;overflow-y:auto;padding:14px 20px;font-family:var(--mono);font-size:11px;
+       line-height:1.75;color:var(--text-2)}
+  .log .ln{padding:5px 0;border-bottom:1px solid var(--line);display:flex;gap:10px}
+  .log .ts{color:var(--dim);flex-shrink:0}
+  .log .st{flex-shrink:0;width:52px}
+  .st.ok{color:var(--ok)} .st.dup{color:var(--warn)} .st.err{color:#e07a7a}
+  .log .msg{min-width:0;word-break:break-word}
+  .log .hint{color:var(--dim)}
+
+  @media (max-width:860px){ .shell{grid-template-columns:1fr;height:auto} .phone{height:70vh} }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- ================= phone ================= -->
+  <div class="phone">
+    <div class="phone-head">
+      <div class="avatar">T</div>
+      <div class="who">Threadkeeper<small id="presence">mock lender · not a real BSP</small></div>
+    </div>
+
+    <div class="thread" id="thread">
+      <div class="empty" id="empty">No messages yet. Say something like “hi” or “need 5 lakh loan”.</div>
+    </div>
+
+    <div class="composer">
+      <div class="row">
+        <input type="text" id="msg" placeholder="Type a message…" autocomplete="off" />
+        <button class="send" id="send" title="Send">↑</button>
+      </div>
+      <div class="tools">
+        <button id="burst" title="Four messages 300ms apart — Phase 02 must collapse these into one turn">
+          burst ×4
+        </button>
+        <button id="resend" title="Re-post the exact previous payload — the provider redelivering">
+          resend last
+        </button>
+        <button id="resend5" title="Post the same payload five times — the Phase 01 done-when">
+          redeliver ×5
+        </button>
+        <button id="tamper" title="Post with a corrupted HMAC — must be rejected 401">
+          bad signature
+        </button>
+        <button class="warn" id="reset" title="Delete this conversation and start over">
+          reset
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= inspector ================= -->
+  <div class="side">
+    <div class="side-head">
+      <h1>Ingress inspector</h1>
+      <div class="sub">what the webhook did</div>
+    </div>
+
+    <div class="meta">
+      <div><div class="k">Phone</div><div class="v" id="m-phone">919876543210</div></div>
+      <div><div class="k">customer_ref</div><div class="v" id="m-ref">—</div></div>
+      <div><div class="k">conversation</div><div class="v" id="m-conv">—</div></div>
+      <div><div class="k">stage</div><div class="v" id="m-stage">—</div></div>
+    </div>
+
+    <div class="log" id="log">
+      <div class="ln"><span class="hint">Every send below is a real HTTP POST from this browser to
+      /webhook/whatsapp, signed with the app secret. Nothing is faked in the middle.</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var PHONE = "919876543210";
+  var lastPayload = null, lastSignature = null;
+
+  var $ = function(id){ return document.getElementById(id); };
+  var thread = $("thread"), logEl = $("log");
+
+  function now(){
+    var d = new Date();
+    return d.toTimeString().slice(0,8);
+  }
+
+  function logLine(status, cls, msg){
+    var ln = document.createElement("div");
+    ln.className = "ln";
+    ln.innerHTML = '<span class="ts">'+now()+'</span>'+
+                   '<span class="st '+cls+'">'+status+'</span>'+
+                   '<span class="msg"></span>';
+    ln.querySelector(".msg").textContent = msg;
+    logEl.appendChild(ln);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  /* ---- build a signed payload, then post it ourselves ---- */
+  async function sign(text, msgId){
+    var r = await fetch("/sim/api/payload", {
+      method:"POST",
+      headers:{"content-type":"application/json"},
+      body: JSON.stringify({ phone: PHONE, text: text, msg_id: msgId || null })
+    });
+    if(!r.ok) throw new Error("payload build failed: "+r.status);
+    return await r.json();
+  }
+
+  async function post(payload, signature, label){
+    // Must serialise exactly as the server did, or the HMAC will not match.
+    var body = JSON.stringify(payload);
+    var headers = {"content-type":"application/json"};
+    if(signature) headers["x-hub-signature-256"] = signature;
+
+    var r = await fetch("/webhook/whatsapp", { method:"POST", headers:headers, body:body });
+    var out;
+    try { out = await r.json(); } catch(e){ out = {}; }
+
+    if(r.status === 401){
+      logLine("401", "err", (label||"post")+" → rejected, invalid signature");
+    } else if(r.status !== 200){
+      logLine(String(r.status), "err", (label||"post")+" → "+JSON.stringify(out));
+    } else if(out.duplicates > 0 && out.accepted === 0){
+      logLine("dup", "dup", (label||"post")+" → duplicate ignored, no reply sent");
+    } else {
+      logLine("200", "ok", (label||"post")+" → accepted "+out.accepted+
+              (out.duplicates ? ", "+out.duplicates+" duplicate" : ""));
+    }
+    return out;
+  }
+
+  async function send(text){
+    if(!text) return;
+    var built = await sign(text);
+    lastPayload = built.payload; lastSignature = built.signature;
+    await post(built.payload, built.signature, "send “"+text.slice(0,24)+"”");
+    setTimeout(refresh, 260);
+  }
+
+  /* ---- transcript ---- */
+  async function refresh(){
+    var r = await fetch("/sim/api/thread?phone="+encodeURIComponent(PHONE));
+    if(!r.ok) return;
+    var d = await r.json();
+
+    $("m-ref").textContent   = d.customer_ref.slice(0,16)+"…";
+    $("m-conv").textContent  = d.conversation_id.slice(0,8)+"…";
+    $("m-stage").textContent = d.stage;
+
+    thread.innerHTML = "";
+    if(!d.messages.length){
+      var e = document.createElement("div");
+      e.className = "empty";
+      e.textContent = "No messages yet. Say something like “hi” or “need 5 lakh loan”.";
+      thread.appendChild(e);
+      return;
+    }
+    d.messages.forEach(function(m){
+      var b = document.createElement("div");
+      // 'in' is inbound to the server = sent BY the customer = right-aligned here.
+      b.className = "bub " + (m.direction === "in" ? "out" : "in");
+      b.textContent = m.body;
+      var t = document.createElement("span");
+      t.className = "t";
+      t.textContent = new Date(m.at).toTimeString().slice(0,5);
+      b.appendChild(t);
+      thread.appendChild(b);
+    });
+    thread.scrollTop = thread.scrollHeight;
+  }
+
+  /* ---- controls ---- */
+  $("send").addEventListener("click", function(){
+    var v = $("msg").value.trim(); $("msg").value = ""; send(v);
+  });
+  $("msg").addEventListener("keydown", function(e){
+    if(e.key === "Enter"){ e.preventDefault(); $("send").click(); }
+  });
+
+  $("burst").addEventListener("click", async function(){
+    var parts = ["hi", "need loan", "5 lakh", "urgent bro"];
+    logLine("→", "", "burst of 4, 300ms apart");
+    for(var i=0;i<parts.length;i++){
+      await send(parts[i]);
+      await new Promise(function(r){ setTimeout(r, 300); });
+    }
+    logLine("note", "", "Phase 01 replies to each. Phase 02 must collapse these into one turn.");
+  });
+
+  $("resend").addEventListener("click", async function(){
+    if(!lastPayload){ logLine("—", "", "nothing sent yet"); return; }
+    await post(lastPayload, lastSignature, "redelivery");
+    setTimeout(refresh, 260);
+  });
+
+  $("resend5").addEventListener("click", async function(){
+    var built = await sign("same message, five times");
+    lastPayload = built.payload; lastSignature = built.signature;
+    logLine("→", "", "posting one identical payload 5× — expect 1 stored, 1 reply");
+    for(var i=0;i<5;i++){
+      await post(built.payload, built.signature, "delivery "+(i+1)+"/5");
+    }
+    setTimeout(refresh, 400);
+  });
+
+  $("tamper").addEventListener("click", async function(){
+    var built = await sign("this should never be stored");
+    if(!built.signature){
+      logLine("skip", "dup", "no app secret configured — signature checking is off");
+      return;
+    }
+    await post(built.payload, "sha256=" + "0".repeat(64), "tampered");
+  });
+
+  $("reset").addEventListener("click", async function(){
+    await fetch("/sim/api/reset?phone="+encodeURIComponent(PHONE), {method:"POST"});
+    lastPayload = null;
+    logLine("✓", "ok", "conversation deleted");
+    refresh();
+  });
+
+  refresh();
+  setInterval(refresh, 2500);
+})();
+</script>
+</body>
+</html>

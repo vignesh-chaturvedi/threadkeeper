@@ -17,6 +17,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 
 from app import cache, db
+from app.ingress import simulator, webhook
 from app.logging import bind_contextvars, clear_contextvars, configure_logging, get_logger
 from app.settings import get_settings
 
@@ -95,6 +96,14 @@ def create_app() -> FastAPI:
     @app.get("/", tags=["meta"])
     async def root() -> dict[str, str]:
         return {"service": "threadkeeper", "version": app.version, "docs": "/docs"}
+
+    app.include_router(webhook.router)
+
+    # The simulator is a development affordance, not a feature. Settings force
+    # it off outside local/test; this is the second lock on the same door.
+    if settings.enable_simulator and settings.env in ("local", "test"):
+        app.include_router(simulator.router)
+        log.info("simulator_mounted", path="/sim")
 
     return app
 

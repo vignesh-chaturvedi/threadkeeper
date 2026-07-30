@@ -12,13 +12,14 @@ COPY --from=ghcr.io/astral-sh/uv:0.5.11 /uv /bin/uv
 WORKDIR /srv
 
 # Dependency layer, cached independently of application source.
-COPY pyproject.toml uv.lock* ./
-RUN uv venv /srv/.venv && \
-    uv sync --frozen --no-install-project --no-dev 2>/dev/null || \
-    uv pip install --python /srv/.venv \
-        "fastapi>=0.115" "uvicorn[standard]>=0.32" "pydantic>=2.9" \
-        "pydantic-settings>=2.6" "psycopg[binary,pool]>=3.2" "redis>=5.2" \
-        "structlog>=24.4" "alembic>=1.14" "sqlalchemy>=2.0"
+#
+# --frozen means the lockfile is the contract: if pyproject.toml gained a
+# dependency that uv.lock doesn't have, this fails the build. An earlier version
+# of this file fell back to a hardcoded pip install on error, which silently
+# produced an image missing a newly added package — the failure surfaced as a
+# ModuleNotFoundError at container start instead. No fallback now, on purpose.
+COPY pyproject.toml uv.lock ./
+RUN uv venv /srv/.venv && uv sync --frozen --no-install-project --no-dev
 
 
 FROM python:3.12-slim AS runtime

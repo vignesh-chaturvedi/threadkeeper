@@ -7,7 +7,9 @@ services:
       POSTGRES_USER: threadkeeper
       POSTGRES_PASSWORD: dev
       POSTGRES_DB: threadkeeper
-    ports: ["5432:5432"]
+    # 5433 on the host: a brew postgresql@17 already owns 5432 there.
+    # Container-internal connections still use 5432 via the `db` hostname.
+    ports: ["5433:5432"]
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -34,9 +36,15 @@ services:
   migrate:
     build: .
     command: ["alembic", "upgrade", "head"]
+    env_file: [.env]
     environment:
       TK_DATABASE_URL: postgresql://threadkeeper:dev@db:5432/threadkeeper
       TK_REDIS_URL: redis://redis:6379/0
+    # Mounted rather than baked in, so adding a migration doesn't need an image
+    # rebuild during development. The Dockerfile still COPYs them for deploys.
+    volumes:
+      - ./migrations:/srv/migrations
+      - ./app:/srv/app
     depends_on:
       db: {condition: service_healthy}
     restart: "no"
@@ -44,6 +52,7 @@ services:
   app:
     build: .
     command: ["uvicorn", "app.main:api", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    env_file: [.env]
     environment:
       TK_DATABASE_URL: postgresql://threadkeeper:dev@db:5432/threadkeeper
       TK_REDIS_URL: redis://redis:6379/0
@@ -68,6 +77,7 @@ services:
     build: .
     # Same image, different entrypoint. The scheduler loop lands in Phase 06.
     command: ["python", "-m", "app.scheduler.worker"]
+    env_file: [.env]
     environment:
       TK_DATABASE_URL: postgresql://threadkeeper:dev@db:5432/threadkeeper
       TK_REDIS_URL: redis://redis:6379/0

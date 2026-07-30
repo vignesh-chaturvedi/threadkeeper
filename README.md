@@ -24,6 +24,14 @@ That brings up Postgres 16 + pgvector, Redis 7, the API, and the follow-up
 worker, applying migrations first. Readiness returns `200` only when both stores
 answer.
 
+Then open **http://localhost:8000/sim** — a fake WhatsApp client that posts
+genuinely HMAC-signed payloads to the real webhook. Buttons for a 4-message
+burst, a byte-identical redelivery, and a tampered signature, with an inspector
+pane showing what ingress did with each one.
+
+> Postgres is published on host port **5433**, not 5432, to avoid colliding with
+> a locally installed Postgres. Inside the compose network it is `db:5432`.
+
 Running the tests, or the API, outside containers:
 
 ```bash
@@ -39,7 +47,7 @@ uv run uvicorn app.main:api --reload
 | Phase | Component | Status |
 |------:|-----------|--------|
 | 00 | Scaffolding, compose topology, migrations, structured logging | ✅ done |
-| 01 | Idempotent webhook ingress + channel adapter | ⬜ |
+| 01 | Idempotent webhook ingress + channel adapter | ✅ done |
 | 02 | Turn coalescing: debounce + in-flight cancellation | ⬜ |
 | 03 | Deterministic stage machine on a LangGraph Postgres checkpointer | ⬜ |
 | 04 | Three-tier memory (working / profile / semantic) | ⬜ |
@@ -84,6 +92,11 @@ WhatsApp BSP ──▶ FastAPI ingress ──▶ Turn buffer ──▶ Orchestra
 threadkeeper/
 ├─ app/
 │  ├─ ingress/          # webhook, signature check, idempotency
+│  │  ├─ adapters/      #   channel seam: base protocol + whatsapp impl
+│  │  ├─ webhook.py     #   HMAC → parse → dedupe → 200 → background
+│  │  ├─ outbound.py    #   retry, backoff w/ jitter, dead letters
+│  │  ├─ repository.py  #   ON CONFLICT DO NOTHING RETURNING id
+│  │  └─ simulator.py   #   /sim — fake WhatsApp client
 │  ├─ buffer/           # debounce + in-flight cancellation
 │  ├─ graph/            # LangGraph nodes, edges, stage policy
 │  ├─ memory/           # working / profile / semantic tiers
@@ -116,6 +129,10 @@ threadkeeper/
 | **Split liveness and readiness** | A liveness probe that fails on a Redis blip restarts a healthy container. Liveness touches nothing; readiness touches everything and returns 503 honestly. |
 | **`migrate` as a one-shot compose service** | `app` and `worker` both gate on `service_completed_successfully`, so no container ever serves traffic against an unmigrated schema, and two replicas cannot race the same migration. |
 | **One config module** | Nothing outside `app/settings.py` reads `os.environ`, which is what makes `.env.example` an accurate document instead of an aspirational one. |
+| **Idempotency in the schema, not the handler** | A partial unique index on `messages.provider_msg_id` plus `ON CONFLICT DO NOTHING RETURNING id`. A SELECT-then-INSERT looks correct and loses precisely the race that redelivery creates — there is a test firing 8 concurrent identical deliveries to prove the difference. |
+| **Conversations keyed by an HMAC of the phone number** | A database dump is then not a directory of who was contacted. Normalisation happens first, so `+91 98765-43210` and `09876543210` resolve to one conversation rather than three. |
+| **Retry policy in the sender, not the adapter** | Every channel inherits the same backoff, the same permanent-vs-transient split, and the same dead-letter table. Full jitter on the backoff, because a provider blip that fails 100 conversations otherwise produces 100 retries in the same millisecond. |
+| **The simulator signs, the browser posts** | The demo exercises the real ingress path including HMAC verification, and "resend" is a byte-identical redelivery rather than a mock of one. |
 
 ---
 

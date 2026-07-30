@@ -1,0 +1,126 @@
+# Threadkeeper
+
+**A durable, resumable conversational sales agent for an Indian lending funnel.**
+WhatsApp in, mock lender APIs out, and state that survives nine days of silence.
+
+> The model decides what to **say** inside a stage. A deterministic graph decides
+> when a stage **changes**. Consent and KYC are not things you let a ReAct loop
+> improvise.
+
+Zero real customer data, zero lender partnerships — every external API is a mock
+written in this repo.
+
+---
+
+## Run it
+
+```bash
+cp .env.example .env
+docker compose up --build
+curl -s localhost:8000/health/ready | jq
+```
+
+That brings up Postgres 16 + pgvector, Redis 7, the API, and the follow-up
+worker, applying migrations first. Readiness returns `200` only when both stores
+answer.
+
+Running the tests, or the API, outside containers:
+
+```bash
+uv sync --all-groups
+uv run pytest
+uv run uvicorn app.main:api --reload
+```
+
+---
+
+## Build status
+
+| Phase | Component | Status |
+|------:|-----------|--------|
+| 00 | Scaffolding, compose topology, migrations, structured logging | ✅ done |
+| 01 | Idempotent webhook ingress + channel adapter | ⬜ |
+| 02 | Turn coalescing: debounce + in-flight cancellation | ⬜ |
+| 03 | Deterministic stage machine on a LangGraph Postgres checkpointer | ⬜ |
+| 04 | Three-tier memory (working / profile / semantic) | ⬜ |
+| 05 | MCP tool server over mock lender APIs | ⬜ |
+| 06 | Follow-up scheduler: ZSET timers, quiet hours, 24h window | ⬜ |
+| 07 | PII tokenization, consent ledger, audit log | ⬜ |
+| 08 | Eval harness: simulated personas, scorecard | ⬜ |
+| 09 | Hinglish / code-mixed intent + slot accuracy | ⬜ |
+| 10 | Traces, funnel view, cost per conversation | ⬜ |
+| 11 | Multi-stage image, Terraform → ECS Fargate | ⬜ |
+| 12 | Demo video, tradeoffs write-up, failure modes | ⬜ |
+
+---
+
+## Architecture
+
+```
+WhatsApp BSP ──▶ FastAPI ingress ──▶ Turn buffer ──▶ Orchestrator
+                 idempotent            Redis          LangGraph
+                 200 fast              debounce       cancelable
+                                                          │
+                    ┌─────────────────────────────────────┘
+                    ▼
+        route → qualify → consent → kyc → offer → close   ↘ escalate
+                    │
+     ┌──────────────┼──────────────┬──────────────┐
+     ▼              ▼              ▼              ▼
+  Postgres      pgvector      MCP tools       PII vault
+  state·slots   semantic      mock lender     tokenize
+  ledger        recall        APIs            before LLM
+     │
+     ▼
+  Follow-up scheduler ─── re-entry turn ───▶ Human console
+  ZSET · quiet hours · 24h                   escalation packet
+```
+
+---
+
+## Repo layout
+
+```
+threadkeeper/
+├─ app/
+│  ├─ ingress/          # webhook, signature check, idempotency
+│  ├─ buffer/           # debounce + in-flight cancellation
+│  ├─ graph/            # LangGraph nodes, edges, stage policy
+│  ├─ memory/           # working / profile / semantic tiers
+│  ├─ tools/            # MCP server + mock lender APIs
+│  ├─ scheduler/        # ZSET worker, backoff, quiet hours
+│  ├─ privacy/          # tokenizer, consent ledger, audit log
+│  ├─ obs/              # traces, cost accounting, funnel metrics
+│  ├─ db.py             # one psycopg3 async pool
+│  ├─ cache.py          # redis client
+│  ├─ logging.py        # structlog JSON + conversation_id contextvar
+│  ├─ settings.py       # the only module that reads the environment
+│  └─ main.py           # FastAPI factory, health probes
+├─ evals/               # personas, runner, labelled intent set
+├─ dashboard/           # funnel + drop-off view
+├─ infra/               # terraform
+├─ migrations/          # alembic, hand-written DDL
+├─ docker-compose.yml
+└─ Dockerfile           # multi-stage, non-root
+```
+
+---
+
+## Design decisions so far
+
+| Decision | Why, and what was rejected |
+|---|---|
+| **psycopg3, not SQLAlchemy ORM** | The LangGraph Postgres checkpointer is built on psycopg3. One driver means one pool and one failure mode. The queries that matter here — `ON CONFLICT DO NOTHING`, `FOR UPDATE SKIP LOCKED`, `jsonb` — are ones the ORM would obstruct. SQLAlchemy remains installed only because Alembic requires it. |
+| **Hand-written migrations, `target_metadata = None`** | There are no ORM models to autogenerate from, and pgvector indexes and skip-locked queue tables want explicit DDL. |
+| **Alembic before the first table** | Retrofitting migrations onto a live schema in week 3 is miserable. The baseline migration creates zero application tables — it only enables `pgcrypto` and `vector`, proving the path works while there is nothing to lose. |
+| **Split liveness and readiness** | A liveness probe that fails on a Redis blip restarts a healthy container. Liveness touches nothing; readiness touches everything and returns 503 honestly. |
+| **`migrate` as a one-shot compose service** | `app` and `worker` both gate on `service_completed_successfully`, so no container ever serves traffic against an unmigrated schema, and two replicas cannot race the same migration. |
+| **One config module** | Nothing outside `app/settings.py` reads `os.environ`, which is what makes `.env.example` an accurate document instead of an aspirational one. |
+
+---
+
+## Known gaps
+
+Tracked honestly, phase by phase — see the build status table above for what does
+not exist yet. Nothing in this repo has been run against a real WhatsApp Business
+account, and by design it never will be.

@@ -1,0 +1,84 @@
+name: threadkeeper
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: threadkeeper
+      POSTGRES_PASSWORD: dev
+      POSTGRES_DB: threadkeeper
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # Compose waits on this before starting app/worker, so migrations never
+      # race a database that is still initialising.
+      test: ["CMD-SHELL", "pg_isready -U threadkeeper -d threadkeeper"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # One-shot: applies migrations, then exits. Both app and worker wait on it.
+  migrate:
+    build: .
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      TK_DATABASE_URL: postgresql://threadkeeper:dev@db:5432/threadkeeper
+      TK_REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db: {condition: service_healthy}
+    restart: "no"
+
+  app:
+    build: .
+    command: ["uvicorn", "app.main:api", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    environment:
+      TK_DATABASE_URL: postgresql://threadkeeper:dev@db:5432/threadkeeper
+      TK_REDIS_URL: redis://redis:6379/0
+      TK_ENV: local
+      TK_LOG_FORMAT: json
+    ports: ["8000:8000"]
+    volumes:
+      - ./app:/srv/app          # --reload needs the source mounted
+      - ./migrations:/srv/migrations
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      migrate: {condition: service_completed_successfully}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health/live').status==200 else 1)\""]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  worker:
+    build: .
+    # Same image, different entrypoint. The scheduler loop lands in Phase 06.
+    command: ["python", "-m", "app.scheduler.worker"]
+    environment:
+      TK_DATABASE_URL: postgresql://threadkeeper:dev@db:5432/threadkeeper
+      TK_REDIS_URL: redis://redis:6379/0
+      TK_ENV: local
+    volumes:
+      - ./app:/srv/app
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      migrate: {condition: service_completed_successfully}
+
+volumes:
+  pgdata:
+  redisdata:

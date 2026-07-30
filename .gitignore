@@ -1,0 +1,58 @@
+# ---------------------------------------------------------------------------
+# Build-step reports — generated after every phase, never committed.
+# ---------------------------------------------------------------------------
+reports/
+*.report.html
+*.report.pdf
+
+# ---------------------------------------------------------------------------
+# Secrets. .env.example IS committed; .env never is.
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# ---------------------------------------------------------------------------
+# Eval + trace artifacts (transcripts can contain generated PII-shaped strings)
+# ---------------------------------------------------------------------------
+evals/artifacts/
+evals/runs/
+traces/
+*.jsonl.gz
+
+# ---------------------------------------------------------------------------
+# Infra state — never commit Terraform state, it holds secrets in plaintext
+# ---------------------------------------------------------------------------
+infra/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+
+# ---------------------------------------------------------------------------
+# Editors / OS
+# ---------------------------------------------------------------------------
+.DS_Store
+.idea/
+.vscode/
+*.swp

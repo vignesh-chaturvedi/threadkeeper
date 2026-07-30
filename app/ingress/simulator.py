@@ -25,6 +25,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
+from app.buffer import coalesce
 from app.ingress import repository
 from app.privacy.refs import customer_ref, normalise_msisdn
 from app.settings import get_settings
@@ -126,6 +127,7 @@ async def get_thread(phone: str = "919876543210") -> dict[str, Any]:
     messages = await repository.thread(str(conversation["id"]))
     return {
         "conversation_id": str(conversation["id"]),
+        "typing": await coalesce.is_typing(str(conversation["id"])),
         "customer_ref": ref,
         "stage": conversation["stage"],
         "status": conversation["status"],
@@ -141,13 +143,35 @@ async def get_thread(phone: str = "919876543210") -> dict[str, Any]:
     }
 
 
+@router.get("/api/buffer")
+async def buffer_state(phone: str = "919876543210") -> dict[str, Any]:
+    """Live view of the debounce window — the whole point of Phase 02, made visible."""
+    _guard()
+    conversation = await repository.get_or_create_conversation("whatsapp", customer_ref(phone))
+    return await coalesce.pending(str(conversation["id"]))
+
+
 @router.post("/api/reset")
 async def reset(phone: str = "919876543210") -> dict[str, Any]:
     """Wipes one simulated customer so a demo can be re-run from zero."""
     _guard()
     from app import db
+    from app.cache import redis
 
     ref = customer_ref(phone)
+    conversation = await repository.get_or_create_conversation("whatsapp", ref)
+    cid = str(conversation["id"])
+
+    # Redis state has to go too, or a reset conversation inherits the previous
+    # one's generation counter and buffered text.
+    await redis().delete(
+        coalesce.k_buf(cid),
+        coalesce.k_gen(cid),
+        coalesce.k_deadline(cid),
+        coalesce.k_first(cid),
+        coalesce.k_lock(cid),
+        coalesce.k_typing(cid),
+    )
     deleted = await db.execute(
         "DELETE FROM conversations WHERE channel = 'whatsapp' AND customer_ref = %s", ref
     )

@@ -44,6 +44,19 @@ async def get_or_create_conversation(channel: str, customer_ref: str) -> dict[st
     return row
 
 
+async def get_conversation(conversation_id: str) -> dict[str, Any]:
+    row = await db.fetch_one(
+        """
+        SELECT id, channel, customer_ref, stage, status, last_in_at, created_at
+        FROM conversations WHERE id = %s
+        """,
+        conversation_id,
+    )
+    if row is None:
+        raise LookupError(f"no conversation {conversation_id}")
+    return row
+
+
 async def record_inbound(evt: InboundEvent, conversation_id: str) -> int | None:
     """Store an inbound message. Returns None if it is a redelivery."""
     row = await db.fetch_one(

@@ -37,6 +37,24 @@
   .bub .t{display:block;font-family:var(--mono);font-size:9px;color:var(--dim);margin-top:4px}
   .empty{color:var(--dim);font-size:13px;text-align:center;margin:auto;max-width:26ch}
 
+  .typing{align-self:flex-start;background:var(--ink-2);border:1px solid var(--line);
+    border-radius:12px;border-bottom-left-radius:3px;padding:10px 14px;display:none}
+  .typing.on{display:block}
+  .typing i{display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--dim);
+    margin-right:3px;animation:bob 1.2s infinite}
+  .typing i:nth-child(2){animation-delay:.18s} .typing i:nth-child(3){animation-delay:.36s}
+  @keyframes bob{0%,60%,100%{opacity:.28;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
+
+  .buf{background:var(--ink-2);border-bottom:1px solid var(--line);padding:10px 20px}
+  .buf-top{display:flex;justify-content:space-between;align-items:baseline;
+    font-family:var(--mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+  .buf-top b{color:var(--accent);font-weight:400}
+  .buf-bar{height:3px;background:var(--line-2);margin-top:7px;overflow:hidden}
+  .buf-bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .18s linear}
+  .buf.hot .buf-bar i{background:var(--warn)}
+  .buf-q{font-family:var(--mono);font-size:10px;color:var(--text-2);margin-top:7px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:14px}
+
   .composer{border-top:1px solid var(--line);padding:12px;background:var(--ink-2)}
   .row{display:flex;gap:8px}
   input,button,select{font-family:inherit;font-size:13px}
@@ -92,6 +110,7 @@
 
     <div class="thread" id="thread">
       <div class="empty" id="empty">No messages yet. Say something like “hi” or “need 5 lakh loan”.</div>
+      <div class="typing" id="typing"><i></i><i></i><i></i></div>
     </div>
 
     <div class="composer">
@@ -131,6 +150,15 @@
       <div><div class="k">customer_ref</div><div class="v" id="m-ref">—</div></div>
       <div><div class="k">conversation</div><div class="v" id="m-conv">—</div></div>
       <div><div class="k">stage</div><div class="v" id="m-stage">—</div></div>
+    </div>
+
+    <div class="buf" id="buf">
+      <div class="buf-top">
+        <span>Turn buffer · <b id="buf-n">0</b> queued · gen <b id="buf-g">0</b></span>
+        <span id="buf-t">window closed</span>
+      </div>
+      <div class="buf-bar"><i id="buf-fill"></i></div>
+      <div class="buf-q" id="buf-q"></div>
     </div>
 
     <div class="log" id="log">
@@ -218,12 +246,15 @@
     $("m-conv").textContent  = d.conversation_id.slice(0,8)+"…";
     $("m-stage").textContent = d.stage;
 
+    var typingEl = $("typing");
     thread.innerHTML = "";
     if(!d.messages.length){
       var e = document.createElement("div");
       e.className = "empty";
       e.textContent = "No messages yet. Say something like “hi” or “need 5 lakh loan”.";
       thread.appendChild(e);
+      typingEl.className = "typing" + (d.typing ? " on" : "");
+      thread.appendChild(typingEl);
       return;
     }
     d.messages.forEach(function(m){
@@ -237,6 +268,8 @@
       b.appendChild(t);
       thread.appendChild(b);
     });
+    typingEl.className = "typing" + (d.typing ? " on" : "");
+    thread.appendChild(typingEl);
     thread.scrollTop = thread.scrollHeight;
   }
 
@@ -250,12 +283,12 @@
 
   $("burst").addEventListener("click", async function(){
     var parts = ["hi", "need loan", "5 lakh", "urgent bro"];
-    logLine("→", "", "burst of 4, 300ms apart");
+    logLine("→", "", "burst of 4, 300ms apart — expect ONE reply");
     for(var i=0;i<parts.length;i++){
       await send(parts[i]);
-      await new Promise(function(r){ setTimeout(r, 300); });
+      if(i < parts.length-1) await new Promise(function(r){ setTimeout(r, 300); });
     }
-    logLine("note", "", "Phase 01 replies to each. Phase 02 must collapse these into one turn.");
+    logLine("note", "", "debounce window is now open; watch the meter above");
   });
 
   $("resend").addEventListener("click", async function(){
@@ -290,8 +323,37 @@
     refresh();
   });
 
+  var WINDOW_S = 2.5;
+  var lastQueued = 0, lastGen = 0;
+
+  async function pollBuffer(){
+    var r = await fetch("/sim/api/buffer?phone="+encodeURIComponent(PHONE));
+    if(!r.ok) return;
+    var b = await r.json();
+
+    $("buf-n").textContent = b.queued;
+    $("buf-g").textContent = b.generation;
+    $("buf-q").textContent = b.messages.length ? "“"+b.messages.join("” · “")+"”" : "";
+
+    var open = b.closes_in_s > 0;
+    $("buf-t").textContent = open ? ("closes in "+b.closes_in_s.toFixed(1)+"s")
+                                  : (b.locked ? "turn running" : "window closed");
+    $("buf-fill").style.width = open ? Math.min(100,(b.closes_in_s/WINDOW_S)*100)+"%" : "0%";
+    $("buf").className = "buf" + (b.locked ? " hot" : "");
+
+    // narrate the interesting transitions
+    if(b.generation > lastGen && lastQueued > 0 && b.queued > lastQueued){
+      logLine("gen", "dup", "generation "+b.generation+" — any in-flight turn is now stale");
+    }
+    if(lastQueued > 0 && b.queued === 0){
+      logLine("turn", "ok", "window closed → "+lastQueued+" message(s) merged into ONE turn");
+    }
+    lastQueued = b.queued; lastGen = b.generation;
+  }
+
   refresh();
-  setInterval(refresh, 2500);
+  setInterval(refresh, 1200);
+  setInterval(pollBuffer, 250);
 })();
 </script>
 </body>

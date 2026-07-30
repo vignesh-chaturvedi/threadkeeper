@@ -48,7 +48,7 @@ uv run uvicorn app.main:api --reload
 |------:|-----------|--------|
 | 00 | Scaffolding, compose topology, migrations, structured logging | ✅ done |
 | 01 | Idempotent webhook ingress + channel adapter | ✅ done |
-| 02 | Turn coalescing: debounce + in-flight cancellation | ⬜ |
+| 02 | Turn coalescing: debounce + in-flight cancellation | ✅ done |
 | 03 | Deterministic stage machine on a LangGraph Postgres checkpointer | ⬜ |
 | 04 | Three-tier memory (working / profile / semantic) | ⬜ |
 | 05 | MCP tool server over mock lender APIs | ⬜ |
@@ -98,6 +98,8 @@ threadkeeper/
 │  │  ├─ repository.py  #   ON CONFLICT DO NOTHING RETURNING id
 │  │  └─ simulator.py   #   /sim — fake WhatsApp client
 │  ├─ buffer/           # debounce + in-flight cancellation
+│  │  ├─ coalesce.py    #   window, generation counter, settle task
+│  │  └─ lock.py        #   per-conversation Redis mutex
 │  ├─ graph/            # LangGraph nodes, edges, stage policy
 │  ├─ memory/           # working / profile / semantic tiers
 │  ├─ tools/            # MCP server + mock lender APIs
@@ -132,6 +134,10 @@ threadkeeper/
 | **Idempotency in the schema, not the handler** | A partial unique index on `messages.provider_msg_id` plus `ON CONFLICT DO NOTHING RETURNING id`. A SELECT-then-INSERT looks correct and loses precisely the race that redelivery creates — there is a test firing 8 concurrent identical deliveries to prove the difference. |
 | **Conversations keyed by an HMAC of the phone number** | A database dump is then not a directory of who was contacted. Normalisation happens first, so `+91 98765-43210` and `09876543210` resolve to one conversation rather than three. |
 | **Retry policy in the sender, not the adapter** | Every channel inherits the same backoff, the same permanent-vs-transient split, and the same dead-letter table. Full jitter on the backoff, because a provider blip that fails 100 conversations otherwise produces 100 retries in the same millisecond. |
+| **Debounce and invalidation are separate mechanisms** | Debounce answers "has the customer stopped typing"; the generation counter answers "is the reply I just produced still the right one". Conflating them means either a chatty user never gets a reply, or a superseded reply ships anyway. |
+| **A monotonic generation counter in Redis, not just `Task.cancel()`** | `cancel()` only reaches tasks in *this* process. With two replicas the other one never hears about it, so every turn re-checks its generation immediately before sending and drops the reply if it moved. The local cancel is the fast path; the counter is the correctness guarantee. |
+| **The buffer is drained only after the reply ships** | Drain-then-generate loses the customer's words whenever a turn is superseded. There is a test asserting "first thought" survives into the next turn. |
+| **A locked conversation stands down rather than queues** | If another worker owns it, waiting your turn just produces the second reply this whole phase exists to prevent. |
 | **The simulator signs, the browser posts** | The demo exercises the real ingress path including HMAC verification, and "resend" is a byte-identical redelivery rather than a mock of one. |
 
 ---

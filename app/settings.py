@@ -66,6 +66,31 @@ class Settings(BaseSettings):
         description="Mock transport only. Injects transient failures so retry paths get exercised.",
     )
 
+    # --- turn coalescing ---------------------------------------------------
+    buffer_window_s: float = Field(
+        default=2.5,
+        description="Quiet period before a burst is treated as one turn. Extended by each message.",
+    )
+    buffer_max_hold_s: float = Field(
+        default=8.0,
+        description=(
+            "Hard cap measured from the first message of a burst, so a chatty "
+            "user cannot defer a reply forever."
+        ),
+    )
+    buffer_lock_ttl_s: float = 30.0
+    typing_ttl_s: float = Field(
+        default=12.0,
+        description="TTL on the typing flag, so a crashed worker doesn't leave it stuck on.",
+    )
+    fake_turn_latency_s: float = Field(
+        default=0.0,
+        description=(
+            "Dev affordance: pretend the model takes this long, so in-flight "
+            "cancellation is observable in the simulator. Never set outside local."
+        ),
+    )
+
     # --- privacy -----------------------------------------------------------
     customer_ref_secret: str = Field(
         default=DEV_REF_SECRET_SENTINEL,

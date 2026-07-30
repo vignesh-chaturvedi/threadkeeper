@@ -17,6 +17,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 
 from app import cache, db
+from app.buffer import coalesce
 from app.ingress import simulator, webhook
 from app.logging import bind_contextvars, clear_contextvars, configure_logging, get_logger
 from app.settings import get_settings
@@ -36,6 +37,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        await coalesce.shutdown()
         await cache.close_redis()
         await db.close_pool()
         log.info("shutdown")

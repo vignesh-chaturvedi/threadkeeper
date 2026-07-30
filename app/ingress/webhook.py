@@ -18,7 +18,8 @@ from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, Response
 
-from app.ingress import pipeline, repository
+from app.buffer import coalesce
+from app.ingress import repository
 from app.ingress.adapters import get_adapter
 from app.logging import bind_contextvars, get_logger
 from app.settings import get_settings
@@ -85,7 +86,8 @@ async def inbound(req: Request, bg: BackgroundTasks) -> dict[str, Any]:
 
         accepted += 1
         log.info("inbound_accepted", provider_msg_id=evt.provider_msg_id, message_id=message_id)
-        # Ack now, think later.
-        bg.add_task(pipeline.handle_inbound, evt)
+        # Ack now, think later. The buffer decides *when* the thinking happens —
+        # a burst of messages becomes one turn rather than one turn each.
+        bg.add_task(coalesce.push, evt)
 
     return {"ok": True, "accepted": accepted, "duplicates": duplicates}

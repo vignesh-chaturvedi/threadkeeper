@@ -87,7 +87,7 @@ async def test_five_deliveries_store_one_message_and_send_one_reply(
     for r in results[1:]:
         assert r.json() == {"ok": True, "accepted": 0, "duplicates": 1}
 
-    await asyncio.sleep(0.5)  # let the background task finish its send
+    await asyncio.sleep(1.2)  # debounce window (0.3s in tests) + send
 
     inbound, outbound = await _counts(phone)
     assert inbound == 1, "five deliveries must store exactly one message"
@@ -105,7 +105,7 @@ async def test_concurrent_redelivery_still_dedupes(live_app, clean_conversation:
     assert all(r.status_code == 200 for r in responses)
     assert sum(r.json()["accepted"] for r in responses) == 1
 
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(1.2)
     inbound, outbound = await _counts(phone)
     assert (inbound, outbound) == (1, 1)
 
@@ -136,11 +136,18 @@ async def test_a_tampered_body_is_rejected(live_app, clean_conversation: str) ->
 
 # ===================================================================== behaviour
 async def test_distinct_messages_each_get_a_reply(live_app, clean_conversation: str) -> None:
+    """Separate thoughts still get separate replies.
+
+    Phase 02 changed what this test has to say. Sent back-to-back these three
+    messages are now deliberately coalesced into one turn, so "distinct" has to
+    mean genuinely distinct — spaced beyond the debounce window.
+    """
     phone = clean_conversation
     for i in range(3):
         body, headers = _body_and_headers(f"message {i}", f"wamid.distinct.{i}", phone)
         r = await live_app.post("/webhook/whatsapp", content=body, headers=headers)
         assert r.json()["accepted"] == 1
+        await asyncio.sleep(0.9)  # > buffer_window_s, so each is its own turn
 
     await asyncio.sleep(0.8)
     assert await _counts(phone) == (3, 3)
@@ -164,7 +171,7 @@ async def test_last_in_at_is_stamped(live_app, clean_conversation: str) -> None:
     phone = clean_conversation
     body, headers = _body_and_headers("hi", "wamid.stamp", phone)
     await live_app.post("/webhook/whatsapp", content=body, headers=headers)
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(0.6)  # stamped by the buffer's push, not the webhook
 
     row = await db.fetch_one(
         "SELECT last_in_at FROM conversations WHERE customer_ref = %s", customer_ref(phone)

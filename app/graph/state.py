@@ -42,6 +42,9 @@ class FunnelState(TypedDict, total=False):
     recall_block: str
     # True only on the opening turn of a conversation with a known customer.
     returning: bool
+    # The top offer most recently shown. Feeds the escalation packet, and lets
+    # create_application verify an offer id was actually quoted.
+    last_offer: dict[str, Any] | None
 
     # Set by extraction, consumed by the policy, cleared each turn.
     interrupt: str | None

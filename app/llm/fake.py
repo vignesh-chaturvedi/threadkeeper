@@ -40,9 +40,19 @@ _PRODUCT = [
 _LAKH = re.compile(r"(\d+(?:\.\d+)?)\s*(?:lakh|lac|l\b)", re.I)
 _PLAIN_AMOUNT = re.compile(r"\b(\d[\d,]{4,})\b")
 
-# "60k", "salary 60000", "monthly 45,000"
+# "60k", "salary 60000", "monthly 45,000", "salary 1 lakh se zyada"
 _INCOME_K = re.compile(r"(\d+(?:\.\d+)?)\s*k\b", re.I)
-_INCOME_WORD = re.compile(r"(?:salary|income|kamata|kamati|monthly)\D{0,12}(\d[\d,]{3,})", re.I)
+_INCOME_WORD = re.compile(
+    r"(?:salary|income|kamata|kamati|kamai|monthly|mahina)\D{0,12}(\d[\d,]{3,})", re.I
+)
+# An income stated in lakhs. Matched — and then *removed from the text* — before
+# the loan amount is parsed, because "salary 1 lakh se zyada hai" otherwise reads
+# as a request for a one-lakh loan and silently overwrites the real amount.
+_INCOME_LAKH = re.compile(
+    r"(?:salary|income|kamata|kamati|kamai|monthly|mahina)\D{0,12}"
+    r"(\d+(?:\.\d+)?)\s*(?:lakh|lac|l\b)",
+    re.I,
+)
 
 # Hinglish puts words between the noun and the verb — "PAN bhi hai", "PAN toh
 # nahi hai" — so these allow up to two intervening words. MISSING is tested
@@ -116,17 +126,26 @@ class FakeProvider:
                 data["product"] = value
                 break
 
-        if lakh := _LAKH.search(text):
+        # Income first, and its span is then hidden from the amount parser.
+        # A number can be an income or a loan amount but never both, and the
+        # keyword is the only thing that disambiguates them.
+        amount_text = text
+        if lakh_income := _INCOME_LAKH.search(text):
+            data["income_band"] = _income_band(int(float(lakh_income.group(1)) * 100_000))
+            amount_text = text[: lakh_income.start()] + " " + text[lakh_income.end() :]
+        elif word := _INCOME_WORD.search(text):
+            data["income_band"] = _income_band(int(word.group(1).replace(",", "")))
+            amount_text = text[: word.start()] + " " + text[word.end() :]
+        elif k := _INCOME_K.search(text):
+            data["income_band"] = _income_band(int(float(k.group(1)) * 1000))
+            amount_text = text[: k.start()] + " " + text[k.end() :]
+
+        if lakh := _LAKH.search(amount_text):
             data["amount_inr"] = int(float(lakh.group(1)) * 100_000)
-        elif plain := _PLAIN_AMOUNT.search(text):
+        elif plain := _PLAIN_AMOUNT.search(amount_text):
             amount = int(plain.group(1).replace(",", ""))
             if amount >= 10_000:
                 data["amount_inr"] = amount
-
-        if word := _INCOME_WORD.search(text):
-            data["income_band"] = _income_band(int(word.group(1).replace(",", "")))
-        elif k := _INCOME_K.search(text):
-            data["income_band"] = _income_band(int(float(k.group(1)) * 1000))
 
         if _PAN_MISSING.search(text):
             data["pan_status"] = "missing"

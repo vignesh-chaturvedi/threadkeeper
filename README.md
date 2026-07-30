@@ -51,7 +51,7 @@ uv run uvicorn app.main:api --reload
 | 02 | Turn coalescing: debounce + in-flight cancellation | ✅ done |
 | 03 | Deterministic stage machine on a LangGraph Postgres checkpointer | ✅ done |
 | 04 | Three-tier memory (working / profile / semantic) | ✅ done |
-| 05 | MCP tool server over mock lender APIs | ⬜ |
+| 05 | MCP tool server over mock lender APIs | ✅ done |
 | 06 | Follow-up scheduler: ZSET timers, quiet hours, 24h window | ⬜ |
 | 07 | PII tokenization, consent ledger, audit log | ⬜ |
 | 08 | Eval harness: simulated personas, scorecard | ⬜ |
@@ -119,6 +119,11 @@ threadkeeper/
 │  │  ├─ semantic.py    #   tier 3 — pgvector over conversation summaries
 │  │  └─ conflict.py    #   provenance > recency, and sticky decisions
 │  ├─ tools/            # MCP server + mock lender APIs
+│  │  ├─ lender.py      #   mock marketplace: rules, matrix, fault injection
+│  │  ├─ registry.py    #   the six tools, defined once
+│  │  ├─ guard.py       #   stage scope + preconditions. The key decision
+│  │  ├─ client.py      #   guard → idempotency → invoke → audit
+│  │  └─ server.py      #   MCPServer; `python -m app.tools.server`
 │  ├─ scheduler/        # ZSET worker, backoff, quiet hours
 │  ├─ privacy/          # tokenizer, consent ledger, audit log
 │  ├─ obs/              # traces, cost accounting, funnel metrics
@@ -166,6 +171,11 @@ threadkeeper/
 | **One embedding per conversation, not per message** | "hi", "ok" and "haan" are the most frequent things anyone types. A per-message index spends its top-k on greetings; a summary written once at close is the unit that answers "what happened last time". |
 | **The token estimator is calibrated, not guessed** | `evals/calibrate_tokens.py` measures it against Gemini's `countTokens`. Two findings: Devanagari is *not* denser than English (4.69 vs 4.40 chars/token — the opposite of my assumption), and JSON-shaped text is (2.33), which is why the profile renders as lines. Deliberately asymmetric: it never under-estimates, because over-estimating trims history and under-estimating overflows the window. |
 | **Provenance outranks recency** | A value the customer confirmed beats a newer one inferred from a passing remark. Within the same provenance, newer wins — "4 lakh, sorry, 6 lakh" is a correction. Opt-out and consent are sticky: only a *confirmed* signal can reverse them, because an extraction returning `false` usually means "not mentioned", and treating that as re-consent messages someone who said stop. |
+| **One tool implementation, two doors** | MCP is how *other* agents reach these tools; in-process is how ours does. Routing every turn through IPC to reach code in the same repo adds a hop and a failure mode for no product benefit — what matters is that both paths run the same guard, idempotency and audit trail. There is a test that calls the server over JSON-RPC and gets the same refusal as the in-process caller. |
+| **Two independent locks on `create_application`** | Stage scope (the guard knows graph state) *and* a precondition check in the handler (which knows the database). Prompt injection can talk a model into trying a tool; it cannot talk a Python function into returning a different answer. |
+| **An offer id that was never quoted is rejected** | `create_application` reads the offer back out of the audit log rather than trusting its argument, which turns "the agent must not invent an offer" into something enforced rather than hoped for. |
+| **Idempotency keys derived from intent, not randomness** | A random key per attempt makes every retry a new application — exactly the bug idempotency exists to prevent. The key is a hash of the call's meaning, and the uniqueness is a database index, so six concurrent retries still open one application. |
+| **The lender fails on purpose** | ~5% of calls time out or 503. An agent whose lender never fails has a degradation path that has never executed. Rates come from a fixed matrix, never sampled — which is what makes "every number in this reply came from a tool" a checkable property. |
 | **The simulator signs, the browser posts** | The demo exercises the real ingress path including HMAC verification, and "resend" is a byte-identical redelivery rather than a mock of one. |
 
 ---
@@ -175,6 +185,7 @@ threadkeeper/
 | Question | Answer | How |
 |---|---|---|
 | Is the token estimator safe? | Never under-estimates across 13 samples; +34.7% mean over-estimate | `uv run python -m evals.calibrate_tokens` |
+| Does the agent invent rates? | **No** — every number in a live `offer_match` reply matched a figure `fetch_offers` returned | manual check, automated in Phase 08 |
 | What is tier 3 worth? | **0 → 100%** objection recall on a returning customer, for **+83 context tokens/turn**, 0 false positives on the control | `uv run python -m evals.memory_ab` |
 
 The second number has a caveat worth stating: retrieval on its own bought

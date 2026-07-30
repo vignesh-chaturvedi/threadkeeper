@@ -1,6 +1,10 @@
 repos:
+  # Pinned to the exact ruff in pyproject's dev group. When these drift, the
+  # two versions disagree on formatting: `uv run ruff format` reports clean and
+  # then the hook reformats the same file, aborting every commit. Bump both
+  # together or not at all.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.6
+    rev: v0.16.0
     hooks:
       - id: ruff
         args: [--fix]

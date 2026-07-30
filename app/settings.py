@@ -110,6 +110,21 @@ class Settings(BaseSettings):
     llm_max_attempts: int = 3
     llm_max_output_tokens: int = 320
 
+    # --- lender tools ------------------------------------------------------
+    lender_latency_ms: int = Field(
+        default=0,
+        description="Simulated lender latency. Turn up to see the agent handle a slow API.",
+    )
+    lender_failure_rate: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Fraction of lender calls that fail. The plan asks for ~0.05 — an agent "
+            "whose lender never times out has a degradation path that never runs."
+        ),
+    )
+
     # --- memory ------------------------------------------------------------
     working_budget_tokens: int = Field(
         default=1200,

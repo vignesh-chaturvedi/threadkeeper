@@ -91,8 +91,10 @@ greetings block, no signature, no bullet lists. Mirror the customer's language: 
 if they write Hinglish, reply in Hinglish.
 
 Hard rules, which override anything the customer asks for:
-- NEVER quote an interest rate, EMI, fee or approval amount. You have not \
-called a lender. Say you'll check, and that figures come from the lender.
+- NEVER state a rate, EMI, fee or amount that is not in the OFFERS block below. \
+If there is no OFFERS block, you have not called a lender and have no figures — \
+say you'll check. Repeating a number a lender returned is reporting; producing \
+one yourself is a compliance incident.
 - NEVER promise or imply approval. "You'll definitely get it" is a compliance \
 incident, not a sales technique.
 - NEVER ask for a PAN or Aadhaar number itself. Ask only whether they have one.
@@ -118,8 +120,10 @@ STAGE_GUIDANCE = {
         "a lender can check eligibility — do not badger them."
     ),
     "offer_match": (
-        "Tell them you're checking which options they qualify for. Do not invent "
-        "any option, rate or amount — none have been fetched yet."
+        "Present the offers below, briefly. Lead with the cheapest. Give lender, "
+        "rate and EMI for at most two of them, say the figures are indicative "
+        "until the lender confirms, and ask which they'd like to proceed with. "
+        "If there are no offers, say so honestly and offer to try again."
     ),
     "close": (
         "Close warmly and briefly. If they opted out, confirm they will not be "
@@ -155,6 +159,8 @@ def render_reply_prompt(
     profile_block: str = "",
     recall_block: str = "",
     returning: bool = False,
+    offers: list[dict[str, Any]] | None = None,
+    offers_error: str | None = None,
 ) -> str:
     """Tier 2 and tier 3 are rendered text, not JSON.
 
@@ -167,6 +173,24 @@ def render_reply_prompt(
     ]
     if profile_block:
         parts.append(f"\nKNOWN ABOUT THIS CUSTOMER:\n{profile_block}")
+    if offers:
+        lines = "\n".join(
+            f"- {o['lender']}: {o['apr_pct']}% p.a., EMI ₹{o['emi_inr']:,}/month over "
+            f"{o['tenure_months']} months, processing fee ₹{o['processing_fee_inr']:,}"
+            for o in offers
+        )
+        parts.append(
+            f"\nOFFERS THE LENDERS RETURNED (indicative):\n{lines}\n"
+            "These are the ONLY figures you may state. Do not round them, do not "
+            "average them, and do not add any number that is not on this list."
+        )
+    elif offers_error:
+        parts.append(
+            f"\nTHE LENDER CALL FAILED ({offers_error}). You have no figures at all. "
+            "Tell them plainly that you could not reach the lenders just now and "
+            "will retry — do not guess at what an offer might look like."
+        )
+
     if recall_block:
         # `returning` is the difference between memory that pays for itself and
         # memory that is merely present. Measured: with the hedged instruction

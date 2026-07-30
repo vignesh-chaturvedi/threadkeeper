@@ -20,6 +20,7 @@ from app.graph.state import FunnelState
 from app.llm import ModelError, get_provider
 from app.logging import get_logger
 from app.memory import conflict
+from app.tools import client as tool_client
 
 log = get_logger(__name__)
 
@@ -155,7 +156,13 @@ def route(state: FunnelState) -> str:
 # ---------------------------------------------------------------------------
 # stage nodes — all identical except for which guidance they render
 # ---------------------------------------------------------------------------
-async def _speak(state: FunnelState, stage: str) -> dict[str, Any]:
+async def _speak(
+    state: FunnelState,
+    stage: str,
+    *,
+    offers: list[dict[str, Any]] | None = None,
+    offers_error: str | None = None,
+) -> dict[str, Any]:
     provider = get_provider()
 
     try:
@@ -167,6 +174,8 @@ async def _speak(state: FunnelState, stage: str) -> dict[str, Any]:
                 profile_block=state.get("profile_block", ""),
                 recall_block=state.get("recall_block", ""),
                 returning=bool(state.get("returning")),
+                offers=offers,
+                offers_error=offers_error,
             ),
             history=state.get("history", []),  # type: ignore[arg-type]
         )
@@ -213,12 +222,42 @@ async def kyc_collect(state: FunnelState) -> dict[str, Any]:
 
 
 async def offer_match(state: FunnelState) -> dict[str, Any]:
-    """Phase 05 wires the MCP lender tools in here.
+    """The one stage that calls a lender before it speaks.
 
-    Until then this must not invent an offer, which is exactly what the reply
-    prompt forbids and what Phase 08 scores as a hard failure.
+    Order matters: fetch first, then generate with the results in hand. A reply
+    written before the tool returns can only describe offers it imagined, which
+    is the exact failure Phase 08 scores as hard.
     """
-    return await _speak(state, "offer_match")
+    slots = state.get("slots") or {}
+    conversation_id = state.get("conversation_id", "")
+
+    result = await tool_client.invoke(
+        "fetch_offers",
+        {
+            "product": slots.get("product") or "personal_loan",
+            "income_band": slots.get("income_band") or "25k_50k",
+            "city_tier": int(slots.get("city_tier") or 2),
+            "amount_inr": int(slots.get("amount_inr") or 300_000),
+            "conversation_id": conversation_id,
+        },
+        stage="offer_match",
+        state=state,
+        conversation_id=conversation_id,
+    )
+
+    if result.get("error"):
+        # The lender is down or said no. Say so plainly rather than improvising
+        # an offer — degrading gracefully is what the fault injection is for.
+        log.info("offers_unavailable", reason=result.get("error"))
+        patch = await _speak(state, "offer_match", offers=[], offers_error=result["error"])
+        return patch
+
+    offers = result.get("offers") or []
+    patch = await _speak(state, "offer_match", offers=offers)
+    # Kept in state for the escalation packet's `last_offer_shown`, and so
+    # create_application can verify an offer was genuinely quoted.
+    patch["last_offer"] = offers[0] if offers else None
+    return patch
 
 
 async def close(state: FunnelState) -> dict[str, Any]:

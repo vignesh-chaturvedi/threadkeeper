@@ -191,9 +191,30 @@ def test_simulator_is_forced_off_in_production() -> None:
         env="prod",
         whatsapp_app_secret="real",
         customer_ref_secret="real",
+        vault_key="cHJvZC12YXVsdC1rZXktMzItYnl0ZXMtZXhhY3RseSE=",
         enable_simulator=True,
     )
     assert s.enable_simulator is False
+
+
+def test_production_refuses_the_shipped_vault_key() -> None:
+    """A default encryption key is not an encryption key.
+
+    Worse than a missing one: it looks configured, and every token in the
+    database is decryptable by anyone who has read the repository.
+    """
+    from pydantic import ValidationError
+
+    from app.settings import DEV_VAULT_KEY, Settings
+
+    with pytest.raises(ValidationError, match="TK_VAULT_KEY"):
+        Settings(
+            _env_file=None,
+            env="prod",
+            whatsapp_app_secret="real",
+            customer_ref_secret="real",
+            vault_key=DEV_VAULT_KEY,
+        )
 
 
 def test_signature_checking_is_on_whenever_a_secret_exists() -> None:

@@ -22,8 +22,12 @@ repos:
       - id: check-merge-conflict
       - id: debug-statements
 
-  # Zero real credentials in git history — the plan is explicit that they will check.
+  # Zero real credentials in git history — the plan is explicit that they will
+  # check. .gitleaks.toml lists the sanctioned dev placeholders and says why
+  # each one is safe; inline `gitleaks:allow` comments are not honoured by this
+  # version, and a config file is more auditable anyway.
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.21.2
     hooks:
       - id: gitleaks
+        args: ["--config", ".gitleaks.toml"]

@@ -26,6 +26,7 @@ from psycopg.types.json import Json
 
 from app import db
 from app.logging import get_logger
+from app.privacy import audit
 from app.tools import guard, registry
 
 log = get_logger(__name__)
@@ -114,6 +115,12 @@ async def invoke(
     if not verdict:
         log.warning("tool_denied", tool=tool, stage=stage, reason=verdict.reason)
         await _record(conversation_id, tool, stage, arguments, denied_reason=verdict.reason)
+        await audit.write(
+            conversation_id,
+            "tool_call",
+            stage=stage,
+            detail={"tool": tool, "denied": verdict.reason},
+        )
         return {"error": "tool_not_permitted", "reason": verdict.reason, "retryable": False}
 
     # --- 2. idempotency, for write tools --------------------------------
@@ -149,6 +156,18 @@ async def invoke(
         result=result,
         error=error,
         latency_ms=latency_ms,
+    )
+    await audit.write(
+        conversation_id,
+        "tool_call",
+        stage=stage,
+        detail={
+            "tool": tool,
+            "ok": "error" not in result,
+            "error": result.get("error"),
+            "latency_ms": latency_ms,
+            "idem_key": idem_key,
+        },
     )
     log.info(
         "tool_called",

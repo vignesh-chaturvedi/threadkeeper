@@ -22,6 +22,7 @@ from app.buffer import coalesce
 from app.ingress import repository
 from app.ingress.adapters import get_adapter
 from app.logging import bind_contextvars, get_logger
+from app.privacy import tokenize
 from app.settings import get_settings
 
 log = get_logger(__name__)
@@ -76,6 +77,16 @@ async def inbound(req: Request, bg: BackgroundTasks) -> dict[str, Any]:
         conversation_id = str(conversation["id"])
         evt.conversation_id = conversation_id
         bind_contextvars(conversation_id=conversation_id)
+
+        # Tokenize before anything is persisted. "The model never sees a PAN" is
+        # a weaker claim than "a PAN is never on disk in the clear", and the
+        # second is the one a security review asks about.
+        if get_settings().tokenize_inbound:
+            safe_text, found = await tokenize.tokenize(evt.text, conversation_id)
+            if found:
+                evt.text = safe_text
+                # The raw payload would put the digits straight back on disk.
+                evt.raw = {"tokenized": True, "kinds": sorted(set(found.values()))}
 
         message_id = await repository.record_inbound(evt, conversation_id)
         if message_id is None:

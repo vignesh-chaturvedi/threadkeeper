@@ -22,6 +22,22 @@ from app.settings import get_settings
 _configured = False
 
 
+def _scrub_pii(_logger: Any, _name: str, event: dict[str, Any]) -> dict[str, Any]:
+    """No identifier reaches a log line, ever.
+
+    By the time anything is logged the text should already be tokenized. This is
+    the belt to that braces: a log statement added in a hurry is exactly how a
+    PAN ends up in a log aggregator forever, and the aggregator has a longer
+    retention policy than anyone remembers.
+    """
+    from app.privacy.patterns import scrub
+
+    for key, value in event.items():
+        if isinstance(value, str) and len(value) >= 10:
+            event[key] = scrub(value)
+    return event
+
+
 def configure_logging(force: bool = False) -> None:
     global _configured
     if _configured and not force:
@@ -36,6 +52,7 @@ def configure_logging(force: bool = False) -> None:
         # NB: not structlog.stdlib.add_logger_name — that processor reads
         # `logger.name`, which only exists on stdlib loggers. We render through
         # PrintLoggerFactory, so get_logger() binds the module name instead.
+        _scrub_pii,
         structlog.processors.TimeStamper(fmt="iso", utc=True),
         structlog.processors.StackInfoRenderer(),
         structlog.processors.UnicodeDecoder(),

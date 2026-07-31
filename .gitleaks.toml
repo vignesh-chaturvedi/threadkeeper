@@ -1,0 +1,36 @@
+title = "Threadkeeper — secret scanning"
+
+# Start from gitleaks' full ruleset and only ever subtract, explicitly.
+[extend]
+useDefault = true
+
+[allowlist]
+description = """
+Sanctioned non-secrets. Everything here is a development placeholder that the
+application actively refuses to run with outside local/test — see the
+_refuse_unsafe_production_config validator in app/settings.py, which raises if
+either of these values is still in place when TK_ENV is staging or prod.
+
+The rule for adding to this list: a value belongs here only if using it in
+production is impossible, not merely discouraged. Anything else gets rotated
+instead of allowlisted.
+"""
+
+paths = [
+  # Committed on purpose: it documents which variables exist and carries only
+  # placeholder values. The real .env is gitignored.
+  '''\.env\.example$''',
+]
+
+regexes = [
+  # The local-dev vault key. Base64 of "threadkeeper-local-dev-vault-key";
+  # settings.py refuses to boot with it outside local/test. Matched on the
+  # prefix because gitleaks reports the captured secret without its trailing
+  # base64 padding, so an anchored full-string regex never matches.
+  '''dGhyZWFka2VlcGVy''',
+  # A throwaway key used by the test that asserts production rejects the
+  # shipped default. It never encrypts anything.
+  '''cHJvZC12YXVsdC1rZXk''',
+  # The local-dev WhatsApp app secret, likewise refused outside local/test.
+  '''local-dev-app-secret''',
+]

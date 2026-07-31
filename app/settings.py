@@ -16,6 +16,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Not a credential — it exists so that shipping the unconfigured default is a
 # startup failure rather than a silent, guessable-customer_ref deployment.
 DEV_REF_SECRET_SENTINEL = "dev-only-customer-ref-secret"  # noqa: S105
+# The same idea for the vault: a shipped default key is not a key.
+DEV_VAULT_KEY = "dGhyZWFka2VlcGVyLWxvY2FsLWRldi12YXVsdC1rZXk="
 
 
 class Settings(BaseSettings):
@@ -162,6 +164,21 @@ class Settings(BaseSettings):
         description="HMAC key for deriving customer_ref from a phone number.",
     )
 
+    # --- privacy: the vault ------------------------------------------------
+    vault_key: str = Field(
+        # Rotating this makes every existing token undecryptable, which is why
+        # key rotation is a migration, not a config change.
+        default=DEV_VAULT_KEY,
+        description="Fernet key for the PII vault. Must be set outside local/test.",
+    )
+    tokenize_inbound: bool = Field(
+        default=True,
+        description=(
+            "Tokenize identifiers before the message is stored at all, not just "
+            "before the model call. Off only for debugging."
+        ),
+    )
+
     # --- local tooling -----------------------------------------------------
     enable_simulator: bool = Field(
         default=True,
@@ -181,6 +198,8 @@ class Settings(BaseSettings):
                 raise ValueError("TK_WHATSAPP_APP_SECRET is required outside local/test")
             if self.customer_ref_secret == DEV_REF_SECRET_SENTINEL:
                 raise ValueError("TK_CUSTOMER_REF_SECRET must be set outside local/test")
+            if self.vault_key == DEV_VAULT_KEY:
+                raise ValueError("TK_VAULT_KEY must be set outside local/test")
             object.__setattr__(self, "enable_simulator", False)
         return self
 

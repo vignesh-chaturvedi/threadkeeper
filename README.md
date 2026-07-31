@@ -53,7 +53,7 @@ uv run uvicorn app.main:api --reload
 | 04 | Three-tier memory (working / profile / semantic) | ✅ done |
 | 05 | MCP tool server over mock lender APIs | ✅ done |
 | 06 | Follow-up scheduler: ZSET timers, quiet hours, 24h window | ✅ done |
-| 07 | PII tokenization, consent ledger, audit log | ⬜ |
+| 07 | PII tokenization, consent ledger, audit log | ✅ done |
 | 08 | Eval harness: simulated personas, scorecard | ⬜ |
 | 09 | Hinglish / code-mixed intent + slot accuracy | ⬜ |
 | 10 | Traces, funnel view, cost per conversation | ⬜ |
@@ -131,6 +131,12 @@ threadkeeper/
 │  │  ├─ clock.py       #   demo clock skip, shared via Redis
 │  │  └─ worker.py      #   claim → check → send → reschedule
 │  ├─ privacy/          # tokenizer, consent ledger, audit log
+│  │  ├─ patterns.py    #   detection + Verhoeff; checksum, not just regex
+│  │  ├─ vault.py       #   Fernet-encrypted, deterministic tokens
+│  │  ├─ tokenize.py    #   in at ingress, out at one choke point
+│  │  ├─ consent.py     #   append-only ledger + revocation
+│  │  ├─ audit.py       #   prompt hash + model, per turn
+│  │  └─ refs.py        #   customer_ref HMAC (Phase 01)
 │  ├─ obs/              # traces, cost accounting, funnel metrics
 │  ├─ db.py             # one psycopg3 async pool
 │  ├─ cache.py          # redis client
@@ -186,6 +192,12 @@ threadkeeper/
 | **One clock for anything measuring elapsed time** | `last_in_at` is written with the scheduler's clock, not SQL `now()`. Identical in production; under a demo clock skip they diverge, and a reply the customer just sent looks hours old — so a nudge they already answered fires anyway. |
 | **At most one pending nudge per conversation** | A partial unique index. Without it every inbound turn leaves its predecessor behind, and a chatty customer accumulates five nudges that all fire at once when they go quiet. |
 | **Quiet hours shift, they don't drop** | A nudge scheduled for 2am IST is not one that should never happen; it is one that should happen at 9am. |
+| **Tokenize before storage, not just before the model** | "The model never sees a PAN" is a weaker claim than "a PAN is never on disk in the clear". The second is what a security review asks about, and there is a test that searches every table — messages, slots, checkpoints, tool calls, audit log — plus the log stream for the raw digits. |
+| **Regex *and* checksum** | A bare twelve-digit pattern matches order numbers. Aadhaar carries a Verhoeff check digit, so the test is exact; PAN's fourth character encodes holder type. Every false positive silently corrupts a real message and fills the vault with junk. |
+| **Deterministic tokens, per conversation** | The same PAN always maps to the same token so the model has one handle for one entity — but a *different* token in a different conversation, so the vault cannot be used to link customers by identifier. |
+| **Append-only enforced by a trigger** | Not a convention. Postgres raises on UPDATE and DELETE against `consent_ledger` and `audit_log`. "Could a consent record have been altered?" gets a better answer than "we don't do that". |
+| **The wording is stored, not just its hash** | A hash proves nothing was altered; it cannot be read back to a human in a dispute. Revocation appends a row, so the grant stays visible — you have to show both that they agreed and that they withdrew. |
+| **Every audit row carries the prompt hash and model** | "Why did the agent say that in March" is answerable six months later, after the prompt has been rewritten twice. |
 | **The simulator signs, the browser posts** | The demo exercises the real ingress path including HMAC verification, and "resend" is a byte-identical redelivery rather than a mock of one. |
 
 ---
@@ -195,6 +207,7 @@ threadkeeper/
 | Question | Answer | How |
 |---|---|---|
 | Is the token estimator safe? | Never under-estimates across 13 samples; +34.7% mean over-estimate | `uv run python -m evals.calibrate_tokens` |
+| Does any identifier reach disk? | **No** — messages, slots, checkpoints, tool_calls, audit_log and logs all clean; only the vault holds them, encrypted | `uv run pytest tests/test_privacy_integration.py` |
 | Does the agent invent rates? | **No** — every number in a live `offer_match` reply matched a figure `fetch_offers` returned | manual check, automated in Phase 08 |
 | What is tier 3 worth? | **0 → 100%** objection recall on a returning customer, for **+83 context tokens/turn**, 0 false positives on the control | `uv run python -m evals.memory_ab` |
 

@@ -23,12 +23,14 @@ from typing import Any
 from psycopg.types.json import Json
 
 from app import db, memory
-from app.graph import escalation, policy
+from app.graph import escalation, policy, prompts
 from app.graph.build import get_graph
 from app.graph.state import new_state
 from app.ingress import repository
 from app.logging import get_logger
+from app.privacy import audit, consent
 from app.scheduler import queue
+from app.settings import get_settings
 
 log = get_logger(__name__)
 
@@ -75,6 +77,30 @@ async def _record_transition(
         reason,
     )
     await db.execute("UPDATE conversations SET stage = %s WHERE id = %s", to_stage, conversation_id)
+
+
+async def _record_consent_event(
+    conversation_id: str, conversation: dict[str, Any], state: dict[str, Any]
+) -> None:
+    """Append to the ledger, but only when the decision actually changed.
+
+    The consent slot is rewritten every turn; the ledger must not grow a row per
+    turn or the history stops being readable.
+    """
+    latest = await consent.current(conversation_id)
+    granted = bool(state.get("granted"))
+    if latest is not None and latest["granted"] == granted:
+        return
+
+    await consent.record(
+        conversation_id,
+        conversation["customer_ref"],
+        conversation["channel"],
+        event="granted" if granted else "refused",
+        wording=prompts.CONSENT_WORDING,
+        wording_hash=state.get("wording_hash") or prompts.consent_wording_hash(),
+        source="customer_reply",
+    )
 
 
 async def run_turn(conversation_id: str, turn_text: str) -> str:
@@ -138,6 +164,14 @@ async def run_turn(conversation_id: str, turn_text: str) -> str:
         await _persist_slots(
             conversation_id, {"consent": result["consent"]}, {"consent": "confirmed"}
         )
+        # And it goes into the ledger, once, with the exact wording shown. The
+        # slot drives routing; the ledger is the evidence.
+        await _record_consent_event(conversation_id, conversation, result["consent"])
+
+    # Revocation is not a stage transition — it is an instruction, and it takes
+    # effect in this call rather than on the scheduler's next pass.
+    if result.get("slots", {}).get("opted_out") and await consent.is_granted(conversation_id):
+        await consent.revoke(conversation_id)
 
     if stage_after != stage_before:
         await _record_transition(conversation_id, stage_before, stage_after, reason)
@@ -164,6 +198,24 @@ async def run_turn(conversation_id: str, turn_text: str) -> str:
     await queue.cancel(conversation_id, "customer_replied")
     if not policy.is_terminal(stage_after) and not result.get("slots", {}).get("opted_out"):
         await queue.schedule(conversation_id, stage_at_drop=stage_after, reason="no_reply")
+
+    # The audit entry carries the prompt hash and model, which is what makes a
+    # reply reproducible six months later rather than merely recorded.
+    settings = get_settings()
+    await audit.write(
+        conversation_id,
+        "turn",
+        stage=stage_after,
+        prompt_hash=prompts.prompt_hash(),
+        model=(settings.gemini_reply_model if settings.llm_provider == "gemini" else "fake"),
+        detail={
+            "stage_before": stage_before,
+            "reason": reason,
+            "slots_known": sorted((result.get("slots") or {}).keys()),
+            "memory_tiers": recollection.tiers,
+            "usage": result.get("usage") or {},
+        },
+    )
 
     usage = result.get("usage") or {}
     log.info(

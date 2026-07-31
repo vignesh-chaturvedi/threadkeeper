@@ -95,10 +95,17 @@ async def fetch_offers(
     }
 
 
-async def verify_pan(*, pan: str, **_: Any) -> dict[str, Any]:
-    """Structural check only. Never returns or records the number."""
+async def verify_pan(*, pan: str, conversation_id: str | None = None, **_: Any) -> dict[str, Any]:
+    """Structural check only. Never returns or records the number.
+
+    One of exactly two callers permitted to detokenize: the lender genuinely
+    needs the digits. Everything else in the system works on the token.
+    """
+    from app.privacy import tokenize as _tokenize
+
+    real = await _tokenize.detokenize(pan, conversation_id) if _tokenize.has_tokens(pan) else pan
     try:
-        return await lender.verify_pan(pan)
+        return await lender.verify_pan(real)
     except Exception as exc:  # noqa: BLE001
         return _fail(exc)
 

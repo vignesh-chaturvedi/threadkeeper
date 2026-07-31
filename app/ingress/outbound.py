@@ -19,6 +19,7 @@ from app.ingress import repository
 from app.ingress.adapters import PermanentSendError, SendError, TransientSendError, get_adapter
 from app.ingress.events import OutboundMessage, SendResult
 from app.logging import get_logger
+from app.privacy import tokenize
 from app.settings import get_settings
 
 log = get_logger(__name__)
@@ -38,6 +39,13 @@ async def send(message: OutboundMessage) -> SendResult:
     """
     settings = get_settings()
     adapter = get_adapter(message.channel)
+
+    # The narrow choke point. Everything upstream of here works on tokens; this
+    # is where — and the only where — the customer's own values are restored,
+    # because they are the one party entitled to see them.
+    message = message.model_copy(
+        update={"text": await tokenize.detokenize(message.text, message.conversation_id)}
+    )
     max_attempts = settings.outbound_max_attempts
     backoff = settings.outbound_backoff_s
 

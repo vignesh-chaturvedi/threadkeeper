@@ -20,6 +20,7 @@ from app.graph.state import FunnelState
 from app.llm import ModelError, get_provider
 from app.logging import get_logger
 from app.memory import conflict
+from app.settings import get_settings
 from app.tools import client as tool_client
 
 log = get_logger(__name__)
@@ -95,11 +96,14 @@ async def extract_slots(state: FunnelState) -> dict[str, Any]:
     stage = state.get("stage", "intent_route")
     known = state.get("slots") or {}
 
+    gating = get_settings().stage_gating
+    schema = prompts.PROMPT_GATED_SCHEMA if gating == "prompt" else prompts.EXTRACTION_SCHEMA
+
     try:
         result = await provider.extract(
             system=prompts.EXTRACTION_SYSTEM,
             user=prompts.render_extraction_prompt(stage, known, state.get("turn_text", "")),
-            schema=prompts.EXTRACTION_SCHEMA,
+            schema=schema,
         )
         extracted, usage = result.data, result.usage
     except ModelError as exc:
@@ -116,10 +120,15 @@ async def extract_slots(state: FunnelState) -> dict[str, Any]:
             "at": datetime.now(UTC).isoformat(),
         }
 
+    # `consent_granted` becomes a consent event, not a slot. `next_stage` is a
+    # routing suggestion the prompt-gated variant returns — persisting it would
+    # put "next_stage" in the customer's profile block, which is both wrong and
+    # would quietly bias the A/B against the variant.
+    _NOT_SLOTS = {"consent_granted", "next_stage"}
     slots, sources = _merge_slots(
         known,
         state.get("slot_sources") or {},
-        {k: v for k, v in extracted.items() if k != "consent_granted"},
+        {k: v for k, v in extracted.items() if k not in _NOT_SLOTS},
         stage,
     )
 
@@ -135,9 +144,25 @@ async def extract_slots(state: FunnelState) -> dict[str, Any]:
     # The routing decision is computed here, as data, so it can be logged and
     # asserted on. The conditional edge below just reads it.
     decision = decide({**state, **patch})
-    patch["next_stage"] = decision.stage
-    patch["route_reason"] = decision.reason
-    patch["holds_stage"] = decision.holds_stage
+
+    if gating == "prompt":
+        # The variant under measurement: take the model's word for it, falling
+        # back to the policy only when it names a stage that does not exist.
+        # This is the whole of prompt-based gating — there is no third thing it
+        # does that the deterministic version leaves out.
+        suggested = extracted.get("next_stage")
+        if suggested in NODES:
+            patch["next_stage"] = suggested
+            patch["route_reason"] = "model_suggested"
+            patch["holds_stage"] = False
+        else:
+            patch["next_stage"] = decision.stage
+            patch["route_reason"] = f"{decision.reason}_fallback"
+            patch["holds_stage"] = decision.holds_stage
+    else:
+        patch["next_stage"] = decision.stage
+        patch["route_reason"] = decision.reason
+        patch["holds_stage"] = decision.holds_stage
 
     log.info(
         "extracted",

@@ -63,6 +63,33 @@ EXTRACTION_SCHEMA: dict[str, Any] = {
     },
 }
 
+# The prompt-gated variant. Adds one field asking the model where the funnel
+# should go next — which is precisely the design this project argues against.
+# It exists so the argument can be measured rather than asserted; see
+# evals/gating_ab.py. TK_STAGE_GATING=prompt selects it.
+PROMPT_GATED_SCHEMA: dict[str, Any] = {
+    "type": "OBJECT",
+    "properties": {
+        **EXTRACTION_SCHEMA["properties"],
+        "next_stage": {
+            "type": "STRING",
+            "enum": [
+                "qualify",
+                "consent",
+                "kyc_collect",
+                "offer_match",
+                "close",
+                "escalate",
+            ],
+            "description": (
+                "Which stage the conversation should move to next. Advance to KYC "
+                "only once you have the product and the income band. Do not ask for "
+                "consent twice. Move to offers once you have consent and a PAN."
+            ),
+        },
+    },
+}
+
 EXTRACTION_SYSTEM = """\
 You extract structured facts from a customer's WhatsApp messages to an Indian \
 lending assistant. Messages are often Hinglish or code-mixed Devanagari.

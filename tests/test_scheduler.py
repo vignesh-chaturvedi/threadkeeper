@@ -107,7 +107,11 @@ async def test_a_lead_abandoned_at_kyc_gets_one_context_aware_nudge(customer: st
     before = await _outbound(cid)
     await clock.skip(timedelta(hours=3))
     processed = await worker.tick()
-    assert processed == 1
+    # `>=` not `==`: the suite runs against a shared Postgres, and asserting a
+    # *global* claim count makes this test fail whenever anything else has a due
+    # job. What matters is that this conversation's nudge went out — asserted
+    # below — not how many other conversations the worker also served.
+    assert processed >= 1, "the armed job should have been claimed"
 
     nudges = await nudges_after(cid, before)
     assert len(nudges) == 1, f"expected exactly one nudge, got {len(nudges)}"
@@ -168,7 +172,7 @@ async def test_a_due_nudge_is_dropped_if_they_replied_after_it_was_scheduled(
 
     before = await _outbound(cid)
     processed = await worker.tick()
-    assert processed == 1, "the job should have been claimed"
+    assert processed >= 1, "the job should have been claimed"
     assert await nudges_after(cid, before) == [], "and then dropped, not sent"
 
     row = await db.fetch_one(
@@ -225,7 +229,7 @@ async def test_a_nudge_due_at_3am_is_deferred_not_sent(customer: str, monkeypatc
     await clock.skip(target.astimezone(UTC) - now)
 
     processed = await worker.tick()
-    assert processed == 1
+    assert processed >= 1
 
     assert await nudges_after(cid, before) == [], "nothing goes out at 3am"
 
@@ -324,7 +328,7 @@ async def test_a_flushed_redis_does_not_lose_the_nudge(customer: str) -> None:
     before = await _outbound(cid)
     await clock.skip(timedelta(hours=3))
     processed = await worker.tick()
-    assert processed == 1, "the claim query reads Postgres, not the ZSET"
+    assert processed >= 1, "the claim query reads Postgres, not the ZSET"
     assert len(await nudges_after(cid, before)) == 1
 
     restored = await queue.reconcile()

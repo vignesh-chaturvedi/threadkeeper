@@ -97,6 +97,16 @@ _STAGE_LINE = re.compile(r"^CURRENT STAGE:\s*(\S+)", re.M)
 _MESSAGE_BLOCK = re.compile(r"CUSTOMER MESSAGE:\s*\n(.*)\Z", re.S)
 _STOPPED_AT = re.compile(r"^THEY STOPPED AT:\s*(.+)$", re.M)
 
+# What a model tends to do when asked to route: move forward on any
+# agreeable-sounding reply.
+_ADVANCE = {
+    "intent_route": "qualify",
+    "qualify": "consent",
+    "consent": "kyc_collect",
+    "kyc_collect": "offer_match",
+    "offer_match": "close",
+}
+
 
 def _income_band(rupees: int) -> str:
     if rupees < 25_000:
@@ -172,6 +182,25 @@ class FakeProvider:
                 data["consent_granted"] = False
             elif _AFFIRM.search(text):
                 data["consent_granted"] = True
+
+        # Prompt-gating asks the model where to go next. The fake answers the
+        # way a plausible model does: it advances whenever the customer said
+        # something agreeable, without checking whether the preconditions hold.
+        # That is not a strawman — it is the failure mode the deterministic
+        # policy exists to prevent, and the A/B measures how often it bites.
+        if "next_stage" in (schema.get("properties") or {}):
+            if data.get("opted_out"):
+                data["next_stage"] = "close"
+            elif data.get("interrupt") == "escalate":
+                data["next_stage"] = "escalate"
+            elif _AFFIRM.search(text):
+                data["next_stage"] = _ADVANCE.get(stage, "qualify")
+            elif data.get("pan_status"):
+                data["next_stage"] = "offer_match"
+            elif data.get("product"):
+                data["next_stage"] = "consent"
+            else:
+                data["next_stage"] = "qualify"
 
         # Only keep keys the schema actually declares, so the fake cannot
         # invent a slot the real provider would never return.

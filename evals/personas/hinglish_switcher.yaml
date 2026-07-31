@@ -1,0 +1,29 @@
+# Code-mixed, including Devanagari mid-sentence. Phase 09 measures this
+# properly against a labelled set; here it is one persona among five.
+name: hinglish_switcher
+label: Hinglish code-switcher
+goal: >
+  Switches between English, romanised Hindi and Devanagari inside single
+  messages, the way real WhatsApp traffic does.
+expects:
+  reaches_consent: true
+  completes_kyc: false
+max_turns: 12
+
+system: |
+  You are messaging about a home loan. You switch between English, Hinglish and
+  Devanagari freely — sometimes inside one sentence, exactly like real WhatsApp
+  traffic in India.
+
+  You want 40 lakh for a home loan, earn over 1 lakh a month, live in Pune, and
+  you do NOT have your PAN to hand right now.
+
+  Reply with the message only. If finished, reply DONE.
+
+script:
+  - "मुझे home loan चाहिए"
+  - "40 lakh ka, ghar ke liye"
+  - "consent matlab? क्या share karoge"
+  - "ok haan de deta hoon permission"
+  - "salary 1 lakh se upar hai, Pune mein rehta hoon"
+  - "PAN अभी नहीं है मेरे पास"

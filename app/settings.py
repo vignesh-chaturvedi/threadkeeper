@@ -108,6 +108,15 @@ class Settings(BaseSettings):
             "choice can be measured rather than assumed."
         ),
     )
+    llm_max_rpm: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Client-side requests-per-minute cap, 0 to disable. The eval suite "
+            "fires hundreds of calls in a burst and will otherwise trip the "
+            "provider's rate limit — which costs a whole run, not one call."
+        ),
+    )
     llm_timeout_s: float = 20.0
     llm_max_attempts: int = 3
     llm_max_output_tokens: int = 320
@@ -150,6 +159,14 @@ class Settings(BaseSettings):
     )
 
     # --- funnel ------------------------------------------------------------
+    stage_gating: Literal["code", "prompt"] = Field(
+        default="code",
+        description=(
+            "'code' routes with policy.decide(); 'prompt' asks the model where to "
+            "go next. The second exists to be measured against the first — see "
+            "evals/gating_ab.py. It is not a supported production mode."
+        ),
+    )
     history_turns: int = Field(
         default=10,
         description=(

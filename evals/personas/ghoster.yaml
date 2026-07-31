@@ -1,0 +1,26 @@
+# Stops replying mid-funnel. Exists to prove the scheduler has something real
+# to act on and that the funnel records where they went quiet.
+name: ghoster
+label: Ghoster
+goal: >
+  Engages briefly, gets as far as being asked for KYC, then simply stops
+  replying. Never says goodbye.
+expects:
+  reaches_consent: true
+  completes_kyc: false
+  ghosts_at: kyc_collect
+max_turns: 10
+
+system: |
+  You are enquiring about a personal loan of 2 lakh. You answer the first few
+  questions, and then you lose interest and stop replying entirely.
+
+  Reply with the message only. Once you have given consent and been asked about
+  your PAN, reply exactly DONE and nothing else, forever after.
+
+script:
+  - "personal loan ke baare mein jaanna tha"
+  - "2 lakh chahiye"
+  - "haan theek hai"
+  - "30000 salary hai, Indore"
+  # and then nothing — the runner treats an exhausted script as ghosting.

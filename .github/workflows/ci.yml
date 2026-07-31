@@ -1,0 +1,97 @@
+name: CI
+
+# The eval suite runs on every PR, not nightly and not by hand. A green badge on
+# an agent repo is unusual, and the only way to keep one honest is to make the
+# gate cheap enough that nobody is tempted to skip it: the whole job runs on the
+# `fake` provider, so it needs no API key, costs nothing, and is deterministic.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TK_ENV: test
+  TK_LLM_PROVIDER: fake
+  TK_DATABASE_URL: postgresql://threadkeeper:dev@localhost:5432/threadkeeper
+  TK_REDIS_URL: redis://localhost:6379/0
+  TK_WHATSAPP_APP_SECRET: ci-app-secret
+  TK_CUSTOMER_REF_SECRET: ci-ref-secret
+  TK_LENDER_FAILURE_RATE: "0"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      db:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: threadkeeper
+          POSTGRES_PASSWORD: dev
+          POSTGRES_DB: threadkeeper
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U threadkeeper -d threadkeeper"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --all-groups --frozen
+
+      - name: Lint and format check
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      # A fresh Fernet key per run. Production refuses the shipped default, so
+      # CI needs its own — but committing one, even a throwaway, means a
+      # base64 blob in the repo that a secret scanner is right to flag and that
+      # a reader has to be told is harmless. Generating it removes both problems:
+      # nothing it encrypts outlives the job.
+      - name: Generate an ephemeral vault key
+        run: |
+          echo "TK_VAULT_KEY=$(uv run python -c \
+            'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')" \
+            >> "$GITHUB_ENV"
+
+      - name: Migrate
+        run: |
+          uv run alembic upgrade head
+          uv run python -m app.graph.checkpointer
+
+      - name: Tests
+        run: uv run pytest -q
+
+      # The reduced suite the plan asks for: one run per persona rather than
+      # the full N. Exits non-zero on any hard failure — an invented rate or an
+      # approval promise fails the PR rather than appearing in a dashboard
+      # nobody opens.
+      - name: Evals
+        run: uv run python -m evals.runner
+
+      - name: Upload eval transcripts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-transcripts
+          path: evals/artifacts/
+          retention-days: 14
+          if-no-files-found: warn

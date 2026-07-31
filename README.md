@@ -14,6 +14,9 @@ written in this repo.
 
 ## Run it
 
+[![CI](https://github.com/vignesh-chaturvedi/threadkeeper/actions/workflows/ci.yml/badge.svg)](https://github.com/vignesh-chaturvedi/threadkeeper/actions/workflows/ci.yml)
+
+
 ```bash
 cp .env.example .env
 docker compose up --build
@@ -32,13 +35,19 @@ pane showing what ingress did with each one.
 > Postgres is published on host port **5433**, not 5432, to avoid colliding with
 > a locally installed Postgres. Inside the compose network it is `db:5432`.
 
-Running the tests, or the API, outside containers:
+Running the tests, the evals, or the API outside containers:
 
 ```bash
 uv sync --all-groups
-uv run pytest
+uv run pytest                          # 310 tests
+uv run python -m evals.runner          # 5 simulated customers, free, ~1s
 uv run uvicorn app.main:api --reload
 ```
+
+The eval suite runs on the `fake` provider by default: deterministic, offline,
+no key, no bill — which is what makes it affordable to gate every PR on. It
+exits non-zero on any hard failure, so an invented rate fails the build rather
+than appearing in a dashboard nobody opens.
 
 ---
 
@@ -54,7 +63,7 @@ uv run uvicorn app.main:api --reload
 | 05 | MCP tool server over mock lender APIs | ✅ done |
 | 06 | Follow-up scheduler: ZSET timers, quiet hours, 24h window | ✅ done |
 | 07 | PII tokenization, consent ledger, audit log | ✅ done |
-| 08 | Eval harness: simulated personas, scorecard | ⬜ |
+| 08 | Eval harness: simulated personas, scorecard | ✅ done |
 | 09 | Hinglish / code-mixed intent + slot accuracy | ⬜ |
 | 10 | Traces, funnel view, cost per conversation | ⬜ |
 | 11 | Multi-stage image, Terraform → ECS Fargate | ⬜ |
@@ -143,8 +152,13 @@ threadkeeper/
 │  ├─ logging.py        # structlog JSON + conversation_id contextvar
 │  ├─ settings.py       # the only module that reads the environment
 │  └─ main.py           # FastAPI factory, health probes
-├─ evals/               # personas, runner, labelled intent set
-│  ├─ calibrate_tokens.py  # measures the estimator against the real tokenizer
+├─ evals/               # personas, runner, scorecard
+│  ├─ personas/*.yaml      # five simulated customers, prompt + script each
+│  ├─ personas.py          # model-driven or scripted, one seam
+│  ├─ scorecard.py         # six metrics, two of them hard failures
+│  ├─ runner.py            # N conversations, transcripts as artifacts
+│  ├─ gating_ab.py         # code- vs prompt-gated routing, measured
+│  ├─ calibrate_tokens.py  # the estimator against the real tokenizer
 │  └─ memory_ab.py         # what tier 3 is actually worth
 ├─ dashboard/           # funnel + drop-off view
 ├─ infra/               # terraform
@@ -198,6 +212,9 @@ threadkeeper/
 | **Append-only enforced by a trigger** | Not a convention. Postgres raises on UPDATE and DELETE against `consent_ledger` and `audit_log`. "Could a consent record have been altered?" gets a better answer than "we don't do that". |
 | **The wording is stored, not just its hash** | A hash proves nothing was altered; it cannot be read back to a human in a dispute. Revocation appends a row, so the grant stays visible — you have to show both that they agreed and that they withdrew. |
 | **Every audit row carries the prompt hash and model** | "Why did the agent say that in March" is answerable six months later, after the prompt has been rewritten twice. |
+| **Every metric is checkable without a human** | Six numbers, no LLM-as-judge in the gate. That constraint is what makes the suite runnable on every commit rather than once before a demo — and `hallucinated_rate` is only decidable because the mock lender computes from a fixed matrix rather than sampling. |
+| **Personas carry a prompt *and* a script** | The prompt makes the numbers mean something; the script makes CI free, offline and deterministic. A harness with only the second would be measuring my own regexes. |
+| **The prompt-gated variant is built properly, not as a strawman** | The A/B has to be capable of embarrassing the thesis, or it is decoration. Whatever number comes out is the number reported. |
 | **The simulator signs, the browser posts** | The demo exercises the real ingress path including HMAC verification, and "resend" is a byte-identical redelivery rather than a mock of one. |
 
 ---
@@ -209,6 +226,8 @@ threadkeeper/
 | Is the token estimator safe? | Never under-estimates across 13 samples; +34.7% mean over-estimate | `uv run python -m evals.calibrate_tokens` |
 | Does any identifier reach disk? | **No** — messages, slots, checkpoints, tool_calls, audit_log and logs all clean; only the vault holds them, encrypted | `uv run pytest tests/test_privacy_integration.py` |
 | Does the agent invent rates? | **No** — every number in a live `offer_match` reply matched a figure `fetch_offers` returned | manual check, automated in Phase 08 |
+| Is code-gated routing better than prompt-gated? | **Cannot say at this sample size** — two runs (n=5 and n=10 per arm) disagreed on the direction of the headline metric. Reported as inconclusive rather than picking the flattering run | `uv run python -m evals.gating_ab` |
+| What does a conversation cost? | **$0.005** on gemini-3.5-flash-lite → 50 conversations ≈ **$0.26** | `uv run python -m evals.runner` |
 | What is tier 3 worth? | **0 → 100%** objection recall on a returning customer, for **+83 context tokens/turn**, 0 false positives on the control | `uv run python -m evals.memory_ab` |
 
 The second number has a caveat worth stating: retrieval on its own bought

@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import secrets
+import time
 from typing import Any
 
 import httpx
@@ -28,6 +29,42 @@ from app.settings import get_settings
 log = get_logger(__name__)
 
 _RETRYABLE = {408, 429, 500, 502, 503, 504}
+
+
+class _RateLimiter:
+    """A client-side requests-per-minute cap.
+
+    Retrying a 429 is the wrong shape of fix on its own: by the time the
+    provider refuses, the burst has already happened and every concurrent call
+    is refused together. Pacing at the source is what keeps a 240-call eval run
+    inside the limit — the retry logic below is for the calls that slip through
+    anyway.
+
+    Deliberately a simple sliding window rather than a token bucket: the
+    behaviour under a burst is easier to reason about, and this only has to be
+    correct within one process.
+    """
+
+    def __init__(self) -> None:
+        self._times: list[float] = []
+        self._lock = asyncio.Lock()
+
+    async def acquire(self, max_rpm: int) -> None:
+        if max_rpm <= 0:
+            return
+        async with self._lock:
+            now = time.monotonic()
+            self._times = [t for t in self._times if now - t < 60.0]
+            if len(self._times) >= max_rpm:
+                wait = 60.0 - (now - self._times[0]) + 0.05
+                log.info("llm_rate_limited", waiting_s=round(wait, 2), max_rpm=max_rpm)
+                await asyncio.sleep(wait)
+                now = time.monotonic()
+                self._times = [t for t in self._times if now - t < 60.0]
+            self._times.append(now)
+
+
+_limiter = _RateLimiter()
 
 
 class GeminiProvider:
@@ -54,6 +91,7 @@ class GeminiProvider:
         last: str = "unknown"
 
         for attempt in range(1, self._max_attempts + 1):
+            await _limiter.acquire(get_settings().llm_max_rpm)
             try:
                 async with httpx.AsyncClient(timeout=self._timeout) as client:
                     resp = await client.post(url, json=body, headers=headers)

@@ -52,7 +52,7 @@ uv run uvicorn app.main:api --reload
 | 03 | Deterministic stage machine on a LangGraph Postgres checkpointer | ✅ done |
 | 04 | Three-tier memory (working / profile / semantic) | ✅ done |
 | 05 | MCP tool server over mock lender APIs | ✅ done |
-| 06 | Follow-up scheduler: ZSET timers, quiet hours, 24h window | ⬜ |
+| 06 | Follow-up scheduler: ZSET timers, quiet hours, 24h window | ✅ done |
 | 07 | PII tokenization, consent ledger, audit log | ⬜ |
 | 08 | Eval harness: simulated personas, scorecard | ⬜ |
 | 09 | Hinglish / code-mixed intent + slot accuracy | ⬜ |
@@ -125,6 +125,11 @@ threadkeeper/
 │  │  ├─ client.py      #   guard → idempotency → invoke → audit
 │  │  └─ server.py      #   MCPServer; `python -m app.tools.server`
 │  ├─ scheduler/        # ZSET worker, backoff, quiet hours
+│  │  ├─ policy.py      #   every timing rule, pure functions
+│  │  ├─ queue.py       #   Redis ZSET + Postgres record of truth
+│  │  ├─ reentry.py     #   names the drop-off point; templates outside 24h
+│  │  ├─ clock.py       #   demo clock skip, shared via Redis
+│  │  └─ worker.py      #   claim → check → send → reschedule
 │  ├─ privacy/          # tokenizer, consent ledger, audit log
 │  ├─ obs/              # traces, cost accounting, funnel metrics
 │  ├─ db.py             # one psycopg3 async pool
@@ -176,6 +181,11 @@ threadkeeper/
 | **An offer id that was never quoted is rejected** | `create_application` reads the offer back out of the audit log rather than trusting its argument, which turns "the agent must not invent an offer" into something enforced rather than hoped for. |
 | **Idempotency keys derived from intent, not randomness** | A random key per attempt makes every retry a new application — exactly the bug idempotency exists to prevent. The key is a hash of the call's meaning, and the uniqueness is a database index, so six concurrent retries still open one application. |
 | **The lender fails on purpose** | ~5% of calls time out or 503. An agent whose lender never fails has a degradation path that has never executed. Rates come from a fixed matrix, never sampled — which is what makes "every number in this reply came from a tool" a checkable property. |
+| **Redis is a cache, Postgres is the truth** | A ZSET answers "is anything due?" in O(log n) instead of scanning a table every two seconds. But caches get flushed, so every pending job is also a row, the claim query reads Postgres, and `reconcile()` rebuilds the ZSET. A test flushes Redis mid-flight and asserts the nudge still arrives. |
+| **`FOR UPDATE SKIP LOCKED`, not a lock we wrote** | Two workers must never send the same nudge. Letting Postgres arbitrate is both correct and less code than any lock we could write — there is a test firing five concurrent claims that asserts exactly one wins. |
+| **One clock for anything measuring elapsed time** | `last_in_at` is written with the scheduler's clock, not SQL `now()`. Identical in production; under a demo clock skip they diverge, and a reply the customer just sent looks hours old — so a nudge they already answered fires anyway. |
+| **At most one pending nudge per conversation** | A partial unique index. Without it every inbound turn leaves its predecessor behind, and a chatty customer accumulates five nudges that all fire at once when they go quiet. |
+| **Quiet hours shift, they don't drop** | A nudge scheduled for 2am IST is not one that should never happen; it is one that should happen at 9am. |
 | **The simulator signs, the browser posts** | The demo exercises the real ingress path including HMAC verification, and "resend" is a byte-identical redelivery rather than a mock of one. |
 
 ---

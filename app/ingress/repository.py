@@ -76,9 +76,18 @@ async def record_inbound(evt: InboundEvent, conversation_id: str) -> int | None:
 
 
 async def touch_last_inbound(conversation_id: str) -> None:
-    """Stamps the 24h customer-service window that Phase 06 reads."""
+    """Stamps the 24h customer-service window that the scheduler reads.
+
+    Deliberately the scheduler's clock, not SQL `now()`. They are the same thing
+    in production, but under a demo clock skip they are not: writing wall time
+    here while the worker compares against a skewed clock makes every reply look
+    hours old, so a nudge the customer just answered still fires.
+    """
+    from app.scheduler import clock
+
     await db.execute(
-        "UPDATE conversations SET last_in_at = now() WHERE id = %s",
+        "UPDATE conversations SET last_in_at = %s WHERE id = %s",
+        await clock.now(),
         conversation_id,
     )
 

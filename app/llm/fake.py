@@ -72,16 +72,30 @@ _AFFIRM = re.compile(
 )
 _DECLINE = re.compile(r"\b(no|nope|nahi|nhi|not now|baad me|later)\b", re.I)
 
-_OBJECTION = re.compile(
-    r"\b(interest|rate|byaj|charge|charges|fee|fees|processing|costly|mehenga|"
-    r"expensive|zyada|too high)\b",
-    re.I,
+# "zyada" and "high" are plain quantifiers, not complaints: "salary 1 lakh se
+# zyada hai" means "more than a lakh", and reading it as an objection derails a
+# perfectly good qualifying answer. An objection needs either a cost noun or an
+# unambiguous complaint word.
+_COST_TERM = re.compile(
+    r"\b(interest|rate|rates|byaj|charge|charges|fee|fees|processing|emi)\b", re.I
 )
+_COMPLAINT = re.compile(r"\b(costly|mehenga|mehngi|expensive|too high)\b", re.I)
+
+
+def _objection_in(text: str) -> str | None:
+    if m := _COST_TERM.search(text):
+        return m.group(0).lower()
+    if m := _COMPLAINT.search(text):
+        return m.group(0).lower()
+    return None
+
+
 _OFF_TOPIC = re.compile(r"\b(weather|cricket|match|movie|khana|mausam|kaise ho)\b", re.I)
 _HUMAN = re.compile(r"\b(human|agent|manager|representative|baat kara|complaint)\b", re.I)
 
 _STAGE_LINE = re.compile(r"^CURRENT STAGE:\s*(\S+)", re.M)
 _MESSAGE_BLOCK = re.compile(r"CUSTOMER MESSAGE:\s*\n(.*)\Z", re.S)
+_STOPPED_AT = re.compile(r"^THEY STOPPED AT:\s*(.+)$", re.M)
 
 
 def _income_band(rupees: int) -> str:
@@ -112,9 +126,9 @@ class FakeProvider:
             data["interrupt"] = "opt_out"
         elif _HUMAN.search(text):
             data["interrupt"] = "escalate"
-        elif _OBJECTION.search(text):
+        elif objection := _objection_in(text):
             data["interrupt"] = "objection"
-            data["objection"] = _OBJECTION.search(text).group(0).lower()
+            data["objection"] = objection
         elif _OFF_TOPIC.search(text):
             data["interrupt"] = "off_topic"
         else:
@@ -167,6 +181,19 @@ class FakeProvider:
         return Extraction(data=data, usage=Usage(input_tokens=len(user) // 4, calls=1))
 
     async def reply(self, *, system: str, user: str, history: list[dict[str, str]]) -> Reply:
+        # Re-entry prompts have no CURRENT STAGE line — they say where the
+        # customer stopped. Without this branch the fake answered every nudge
+        # with its generic greeting, which silently made the scheduler tests
+        # assert nothing.
+        if stopped := _STOPPED_AT.search(user):
+            text = (
+                f"Hi! We'd got as far as {stopped.group(1).strip()} — "
+                "happy to pick up whenever you are. Reply STOP if you'd rather not."
+            )
+            return Reply(
+                text=text, usage=Usage(input_tokens=len(user) // 4, output_tokens=28, calls=1)
+            )
+
         stage_match = _STAGE_LINE.search(user)
         stage = stage_match.group(1) if stage_match else "intent_route"
         text = _CANNED.get(stage, _CANNED["intent_route"])

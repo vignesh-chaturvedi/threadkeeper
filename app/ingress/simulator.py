@@ -18,6 +18,7 @@ import hmac
 import json
 import secrets
 import time
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,7 @@ from pydantic import BaseModel, Field
 from app.buffer import coalesce
 from app.ingress import repository
 from app.privacy.refs import customer_ref, normalise_msisdn
+from app.scheduler import clock, queue
 from app.settings import get_settings
 
 router = APIRouter(prefix="/sim", tags=["simulator"])
@@ -131,9 +133,24 @@ async def get_thread(phone: str = "919876543210") -> dict[str, Any]:
     slot_rows = await db.fetch_all(
         "SELECT key, value FROM slots WHERE conversation_id = %s ORDER BY key", cid
     )
+    followup = await queue.pending_for(cid)
+    offset = await clock.offset()
     return {
         "conversation_id": str(conversation["id"]),
         "typing": await coalesce.is_typing(str(conversation["id"])),
+        "clock_offset_hours": round(offset.total_seconds() / 3600, 2),
+        "followup": (
+            {
+                "due_at": followup["due_at"].isoformat(),
+                "attempt": followup["attempt"],
+                "stage_at_drop": followup["stage_at_drop"],
+                "due_in_hours": round(
+                    (followup["due_at"] - await clock.now()).total_seconds() / 3600, 2
+                ),
+            }
+            if followup
+            else None
+        ),
         "customer_ref": ref,
         "stage": conversation["stage"],
         "status": conversation["status"],
@@ -148,6 +165,24 @@ async def get_thread(phone: str = "919876543210") -> dict[str, Any]:
             for m in messages
         ],
     }
+
+
+@router.post("/api/clock/skip")
+async def skip_clock(hours: float = 3.0) -> dict[str, Any]:
+    """Jump the demo clock forward. Nobody waits three days to see a nudge."""
+    _guard()
+    offset = await clock.skip(timedelta(hours=hours))
+    return {
+        "offset_hours": round(offset.total_seconds() / 3600, 2),
+        "now": (await clock.now()).isoformat(),
+    }
+
+
+@router.post("/api/clock/reset")
+async def reset_clock() -> dict[str, Any]:
+    _guard()
+    await clock.reset()
+    return {"offset_hours": 0.0, "now": (await clock.now()).isoformat()}
 
 
 @router.get("/api/buffer")

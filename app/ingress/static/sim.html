@@ -131,6 +131,12 @@
         <button id="tamper" title="Post with a corrupted HMAC — must be rejected 401">
           bad signature
         </button>
+        <button id="skip" title="Jump the demo clock forward 3 hours — the follow-up becomes due">
+          skip 3h
+        </button>
+        <button id="skip2d" title="Jump forward 2 days — past the 24h window, so a template is used">
+          skip 2d
+        </button>
         <button class="warn" id="reset" title="Delete this conversation and start over">
           reset
         </button>
@@ -150,6 +156,8 @@
       <div><div class="k">customer_ref</div><div class="v" id="m-ref">—</div></div>
       <div><div class="k">conversation</div><div class="v" id="m-conv">—</div></div>
       <div><div class="k">stage</div><div class="v" id="m-stage">—</div></div>
+      <div><div class="k">follow-up</div><div class="v" id="m-followup">—</div></div>
+      <div><div class="k">clock</div><div class="v" id="m-clock">real time</div></div>
     </div>
 
     <div class="buf" id="slots-panel" style="border-bottom:1px solid var(--line)">
@@ -250,6 +258,12 @@
     $("m-ref").textContent   = d.customer_ref.slice(0,16)+"…";
     $("m-conv").textContent  = d.conversation_id.slice(0,8)+"…";
     $("m-stage").textContent = d.stage;
+    $("m-followup").textContent = d.followup
+      ? ("in " + d.followup.due_in_hours + "h · " + d.followup.stage_at_drop +
+         " · try " + (d.followup.attempt + 1))
+      : "none armed";
+    $("m-clock").textContent = d.clock_offset_hours
+      ? ("+" + d.clock_offset_hours + "h skipped") : "real time";
 
     var slots = d.slots || {};
     var keys = Object.keys(slots);
@@ -332,8 +346,21 @@
     await post(built.payload, "sha256=" + "0".repeat(64), "tampered");
   });
 
+  async function skipClock(hours, label){
+    var r = await fetch("/sim/api/clock/skip?hours="+hours, {method:"POST"});
+    var d = await r.json();
+    logLine("clock", "dup", label + " → offset now +" + d.offset_hours + "h; " +
+            "the worker polls every 2s, watch for the nudge");
+    setTimeout(refresh, 2500);
+  }
+  $("skip").addEventListener("click", function(){ skipClock(3, "skipped 3 hours"); });
+  $("skip2d").addEventListener("click", function(){
+    skipClock(48, "skipped 2 days (past the 24h window — expect a template)");
+  });
+
   $("reset").addEventListener("click", async function(){
     await fetch("/sim/api/reset?phone="+encodeURIComponent(PHONE), {method:"POST"});
+    await fetch("/sim/api/clock/reset", {method:"POST"});
     lastPayload = null;
     logLine("✓", "ok", "conversation deleted");
     refresh();

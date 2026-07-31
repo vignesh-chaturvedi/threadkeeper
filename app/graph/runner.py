@@ -28,6 +28,7 @@ from app.graph.build import get_graph
 from app.graph.state import new_state
 from app.ingress import repository
 from app.logging import get_logger
+from app.scheduler import queue
 
 log = get_logger(__name__)
 
@@ -155,6 +156,14 @@ async def run_turn(conversation_id: str, turn_text: str) -> str:
     # tier 3 recall the next time this customer comes back.
     if policy.is_terminal(stage_after) and stage_after != stage_before:
         await memory.semantic.store(conversation_id)
+
+    # --- the follow-up, rearmed every turn -------------------------------
+    # The customer just spoke, so any pending nudge is answered and cancelled.
+    # If the conversation is still live, a fresh one is armed for the moment
+    # they go quiet. A terminal conversation gets neither.
+    await queue.cancel(conversation_id, "customer_replied")
+    if not policy.is_terminal(stage_after) and not result.get("slots", {}).get("opted_out"):
+        await queue.schedule(conversation_id, stage_at_drop=stage_after, reason="no_reply")
 
     usage = result.get("usage") or {}
     log.info(

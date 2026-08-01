@@ -1,0 +1,150 @@
+{"id": 1, "script": "latin", "text": "hi", "intent": "greeting", "slots": {}, "stage": "qualify"}
+{"id": 2, "script": "latin", "text": "hello bhai", "intent": "greeting", "slots": {}, "stage": "qualify"}
+{"id": 3, "script": "latin", "text": "namaste, loan ke baare mein poochna tha", "intent": "product_enquiry", "slots": {}, "stage": "qualify"}
+{"id": 4, "script": "latin", "text": "kya aap loan dete ho?", "intent": "product_enquiry", "slots": {}, "stage": "qualify"}
+{"id": 5, "script": "latin", "text": "mujhe personal loan chahiye", "intent": "product_enquiry", "slots": {"product": "personal_loan"}, "stage": "qualify"}
+{"id": 6, "script": "latin", "text": "personal loan ka process kya hai", "intent": "product_enquiry", "slots": {"product": "personal_loan"}, "stage": "qualify"}
+{"id": 7, "script": "latin", "text": "home loan chahiye ghar ke liye", "intent": "product_enquiry", "slots": {"product": "home_loan"}, "stage": "qualify"}
+{"id": 8, "script": "latin", "text": "business loan milega kya dukaan ke liye", "intent": "product_enquiry", "slots": {"product": "business_loan"}, "stage": "qualify"}
+{"id": 9, "script": "latin", "text": "gold loan pe kitna milta hai", "intent": "product_enquiry", "slots": {"product": "gold_loan"}, "stage": "qualify"}
+{"id": 10, "script": "latin", "text": "PL chahiye urgent", "intent": "product_enquiry", "slots": {"product": "personal_loan"}, "stage": "qualify"}
+{"id": 11, "script": "latin", "text": "5 lakh chahiye", "intent": "amount_request", "slots": {"amount_inr": 500000}, "stage": "qualify"}
+{"id": 12, "script": "latin", "text": "mujhe 2 lakh ka loan chahiye", "intent": "amount_request", "slots": {"amount_inr": 200000}, "stage": "qualify"}
+{"id": 13, "script": "latin", "text": "10 lakh ka personal loan", "intent": "product_enquiry", "slots": {"product": "personal_loan", "amount_inr": 1000000}, "stage": "qualify"}
+{"id": 14, "script": "latin", "text": "around 350000 ka arrangement karna hai", "intent": "amount_request", "slots": {"amount_inr": 350000}, "stage": "qualify"}
+{"id": 15, "script": "latin", "text": "50 hazaar bas", "intent": "amount_request", "slots": {"amount_inr": 50000}, "stage": "qualify"}
+{"id": 16, "script": "latin", "text": "1.5 lakh se kaam ho jayega", "intent": "amount_request", "slots": {"amount_inr": 150000}, "stage": "qualify"}
+{"id": 17, "script": "latin", "text": "25 lakh ka home loan chahiye Pune mein", "intent": "product_enquiry", "slots": {"product": "home_loan", "amount_inr": 2500000}, "stage": "qualify"}
+{"id": 18, "script": "latin", "text": "salary 60k hai", "intent": "income_statement", "slots": {"income_band": "50k_1l"}, "stage": "qualify"}
+{"id": 19, "script": "latin", "text": "monthly 35000 kamata hoon", "intent": "income_statement", "slots": {"income_band": "25k_50k"}, "stage": "qualify"}
+{"id": 20, "script": "latin", "text": "income 1 lakh se zyada hai", "intent": "income_statement", "slots": {"income_band": "above_1l"}, "stage": "qualify"}
+{"id": 21, "script": "latin", "text": "mahina 18 hazaar milta hai", "intent": "income_statement", "slots": {"income_band": "under_25k"}, "stage": "qualify"}
+{"id": 22, "script": "latin", "text": "salary abhi 80000 hai, Mumbai mein job karta hoon", "intent": "income_statement", "slots": {"income_band": "50k_1l"}, "stage": "qualify"}
+{"id": 23, "script": "latin", "text": "ghar se business chalata hoon, 45k ke aas paas", "intent": "income_statement", "slots": {"income_band": "25k_50k"}, "stage": "qualify"}
+{"id": 24, "script": "latin", "text": "haan PAN hai mere paas", "intent": "kyc_status", "slots": {"pan_status": "available"}, "stage": "kyc_collect"}
+{"id": 25, "script": "latin", "text": "PAN nahi hai abhi", "intent": "kyc_status", "slots": {"pan_status": "missing"}, "stage": "kyc_collect"}
+{"id": 26, "script": "latin", "text": "pan card ready hai", "intent": "kyc_status", "slots": {"pan_status": "available"}, "stage": "kyc_collect"}
+{"id": 27, "script": "latin", "text": "PAN toh nahi bana abhi tak", "intent": "kyc_status", "slots": {"pan_status": "missing"}, "stage": "kyc_collect"}
+{"id": 28, "script": "latin", "text": "aadhaar hai lekin PAN nahi", "intent": "kyc_status", "slots": {"pan_status": "missing"}, "stage": "kyc_collect"}
+{"id": 29, "script": "latin", "text": "haan dono documents hai, PAN bhi", "intent": "kyc_status", "slots": {"pan_status": "available"}, "stage": "kyc_collect"}
+{"id": 30, "script": "latin", "text": "haan theek hai", "intent": "consent_response", "slots": {"consent_granted": true}, "stage": "consent"}
+{"id": 31, "script": "latin", "text": "haan permission hai, aage badho", "intent": "consent_response", "slots": {"consent_granted": true}, "stage": "consent"}
+{"id": 32, "script": "latin", "text": "yes go ahead", "intent": "consent_response", "slots": {"consent_granted": true}, "stage": "consent"}
+{"id": 33, "script": "latin", "text": "nahi, details share mat karo", "intent": "consent_response", "slots": {"consent_granted": false}, "stage": "consent"}
+{"id": 34, "script": "latin", "text": "abhi nahi, baad mein sochunga", "intent": "consent_response", "slots": {"consent_granted": false}, "stage": "consent"}
+{"id": 35, "script": "latin", "text": "thik hai de deta hoon permission", "intent": "consent_response", "slots": {"consent_granted": true}, "stage": "consent"}
+{"id": 36, "script": "latin", "text": "bhai interest rate kitna hai", "intent": "objection", "slots": {"objection": "interest_rate"}, "stage": "qualify"}
+{"id": 37, "script": "latin", "text": "processing fees bahut zyada hai", "intent": "objection", "slots": {"objection": "fees"}, "stage": "qualify"}
+{"id": 38, "script": "latin", "text": "itna interest kyun le rahe ho", "intent": "objection", "slots": {"objection": "interest_rate"}, "stage": "qualify"}
+{"id": 39, "script": "latin", "text": "EMI kitni banegi", "intent": "objection", "slots": {"objection": "emi"}, "stage": "qualify"}
+{"id": 40, "script": "latin", "text": "dusri app kam rate de rahi hai", "intent": "objection", "slots": {"objection": "interest_rate"}, "stage": "qualify"}
+{"id": 41, "script": "latin", "text": "charges bahut mehenge lag rahe hain", "intent": "objection", "slots": {"objection": "fees"}, "stage": "qualify"}
+{"id": 42, "script": "latin", "text": "hidden charges toh nahi hain na", "intent": "objection", "slots": {"objection": "fees"}, "stage": "qualify"}
+{"id": 43, "script": "latin", "text": "stop", "intent": "opt_out", "slots": {"opted_out": true}, "stage": "qualify"}
+{"id": 44, "script": "latin", "text": "band karo ye messages", "intent": "opt_out", "slots": {"opted_out": true}, "stage": "qualify"}
+{"id": 45, "script": "latin", "text": "mat bhejo mujhe kuch bhi", "intent": "opt_out", "slots": {"opted_out": true}, "stage": "qualify"}
+{"id": 46, "script": "latin", "text": "mujhe nahi chahiye loan, remove me", "intent": "opt_out", "slots": {"opted_out": true}, "stage": "qualify"}
+{"id": 47, "script": "latin", "text": "unsubscribe kar do", "intent": "opt_out", "slots": {"opted_out": true}, "stage": "qualify"}
+{"id": 48, "script": "latin", "text": "kisi insaan se baat karao", "intent": "escalation_request", "slots": {}, "stage": "qualify"}
+{"id": 49, "script": "latin", "text": "manager se baat karni hai", "intent": "escalation_request", "slots": {}, "stage": "qualify"}
+{"id": 50, "script": "latin", "text": "can I talk to a human agent", "intent": "escalation_request", "slots": {}, "stage": "qualify"}
+{"id": 51, "script": "latin", "text": "complaint darj karni hai", "intent": "escalation_request", "slots": {}, "stage": "qualify"}
+{"id": 52, "script": "latin", "text": "mera application ka kya hua", "intent": "status_check", "slots": {}, "stage": "qualify"}
+{"id": 53, "script": "latin", "text": "kitna time lagega approval mein", "intent": "status_check", "slots": {}, "stage": "qualify"}
+{"id": 54, "script": "latin", "text": "abhi tak koi update nahi aaya", "intent": "status_check", "slots": {}, "stage": "qualify"}
+{"id": 55, "script": "latin", "text": "aaj mausam accha hai na", "intent": "off_topic", "slots": {}, "stage": "qualify"}
+{"id": 56, "script": "latin", "text": "kal match dekha kya", "intent": "off_topic", "slots": {}, "stage": "qualify"}
+{"id": 57, "script": "latin", "text": "aap kaise ho", "intent": "off_topic", "slots": {}, "stage": "qualify"}
+{"id": 58, "script": "latin", "text": "hmm", "intent": "unclear", "slots": {}, "stage": "qualify"}
+{"id": 59, "script": "latin", "text": "ok", "intent": "unclear", "slots": {}, "stage": "qualify"}
+{"id": 60, "script": "latin", "text": "???", "intent": "unclear", "slots": {}, "stage": "qualify"}
+{"id": 61, "script": "devanagari", "text": "नमस्ते", "intent": "greeting", "slots": {}, "stage": "qualify"}
+{"id": 62, "script": "devanagari", "text": "हैलो भाई", "intent": "greeting", "slots": {}, "stage": "qualify"}
+{"id": 63, "script": "devanagari", "text": "मुझे लोन चाहिए", "intent": "product_enquiry", "slots": {}, "stage": "qualify"}
+{"id": 64, "script": "devanagari", "text": "क्या आप लोन देते हैं", "intent": "product_enquiry", "slots": {}, "stage": "qualify"}
+{"id": 65, "script": "devanagari", "text": "मुझे व्यक्तिगत ऋण चाहिए", "intent": "product_enquiry", "slots": {"product": "personal_loan"}, "stage": "qualify"}
+{"id": 66, "script": "devanagari", "text": "घर के लिए होम लोन चाहिए", "intent": "product_enquiry", "slots": {"product": "home_loan"}, "stage": "qualify"}
+{"id": 67, "script": "devanagari", "text": "दुकान के लिए बिज़नेस लोन मिलेगा", "intent": "product_enquiry", "slots": {"product": "business_loan"}, "stage": "qualify"}
+{"id": 68, "script": "devanagari", "text": "सोने पर लोन कितना मिलता है", "intent": "product_enquiry", "slots": {"product": "gold_loan"}, "stage": "qualify"}
+{"id": 69, "script": "devanagari", "text": "पाँच लाख चाहिए", "intent": "amount_request", "slots": {"amount_inr": 500000}, "stage": "qualify"}
+{"id": 70, "script": "devanagari", "text": "मुझे दो लाख का लोन चाहिए", "intent": "amount_request", "slots": {"amount_inr": 200000}, "stage": "qualify"}
+{"id": 71, "script": "devanagari", "text": "3 लाख का पर्सनल लोन", "intent": "product_enquiry", "slots": {"product": "personal_loan", "amount_inr": 300000}, "stage": "qualify"}
+{"id": 72, "script": "devanagari", "text": "पचास हज़ार बस", "intent": "amount_request", "slots": {"amount_inr": 50000}, "stage": "qualify"}
+{"id": 73, "script": "devanagari", "text": "२० लाख का होम लोन", "intent": "product_enquiry", "slots": {"product": "home_loan", "amount_inr": 2000000}, "stage": "qualify"}
+{"id": 74, "script": "devanagari", "text": "सैलरी साठ हज़ार है", "intent": "income_statement", "slots": {"income_band": "50k_1l"}, "stage": "qualify"}
+{"id": 75, "script": "devanagari", "text": "महीने का 35000 कमाता हूँ", "intent": "income_statement", "slots": {"income_band": "25k_50k"}, "stage": "qualify"}
+{"id": 76, "script": "devanagari", "text": "आमदनी एक लाख से ज़्यादा है", "intent": "income_statement", "slots": {"income_band": "above_1l"}, "stage": "qualify"}
+{"id": 77, "script": "devanagari", "text": "महीना बीस हज़ार मिलता है", "intent": "income_statement", "slots": {"income_band": "under_25k"}, "stage": "qualify"}
+{"id": 78, "script": "devanagari", "text": "हाँ पैन कार्ड है मेरे पास", "intent": "kyc_status", "slots": {"pan_status": "available"}, "stage": "kyc_collect"}
+{"id": 79, "script": "devanagari", "text": "पैन अभी नहीं है", "intent": "kyc_status", "slots": {"pan_status": "missing"}, "stage": "kyc_collect"}
+{"id": 80, "script": "devanagari", "text": "पैन कार्ड बना नहीं है अभी तक", "intent": "kyc_status", "slots": {"pan_status": "missing"}, "stage": "kyc_collect"}
+{"id": 81, "script": "devanagari", "text": "आधार है लेकिन पैन नहीं", "intent": "kyc_status", "slots": {"pan_status": "missing"}, "stage": "kyc_collect"}
+{"id": 82, "script": "devanagari", "text": "हाँ ठीक है", "intent": "consent_response", "slots": {"consent_granted": true}, "stage": "consent"}
+{"id": 83, "script": "devanagari", "text": "हाँ अनुमति है, आगे बढ़िए", "intent": "consent_response", "slots": {"consent_granted": true}, "stage": "consent"}
+{"id": 84, "script": "devanagari", "text": "नहीं, मेरी जानकारी साझा मत कीजिए", "intent": "consent_response", "slots": {"consent_granted": false}, "stage": "consent"}
+{"id": 85, "script": "devanagari", "text": "अभी नहीं, बाद में सोचूँगा", "intent": "consent_response", "slots": {"consent_granted": false}, "stage": "consent"}
+{"id": 86, "script": "devanagari", "text": "ब्याज दर कितनी है", "intent": "objection", "slots": {"objection": "interest_rate"}, "stage": "qualify"}
+{"id": 87, "script": "devanagari", "text": "प्रोसेसिंग फीस बहुत ज़्यादा है", "intent": "objection", "slots": {"objection": "fees"}, "stage": "qualify"}
+{"id": 88, "script": "devanagari", "text": "इतना ब्याज क्यों ले रहे हो", "intent": "objection", "slots": {"objection": "interest_rate"}, "stage": "qualify"}
+{"id": 89, "script": "devanagari", "text": "किस्त कितनी बनेगी", "intent": "objection", "slots": {"objection": "emi"}, "stage": "qualify"}
+{"id": 90, "script": "devanagari", "text": "शुल्क बहुत महँगा लग रहा है", "intent": "objection", "slots": {"objection": "fees"}, "stage": "qualify"}
+{"id": 91, "script": "devanagari", "text": "बंद करो ये मैसेज", "intent": "opt_out", "slots": {"opted_out": true}, "stage": "qualify"}
+{"id": 92, "script": "devanagari", "text": "मुझे कुछ मत भेजो", "intent": "opt_out", "slots": {"opted_out": true}, "stage": "qualify"}
+{"id": 93, "script": "devanagari", "text": "मुझे लोन नहीं चाहिए, हटा दीजिए", "intent": "opt_out", "slots": {"opted_out": true}, "stage": "qualify"}
+{"id": 94, "script": "devanagari", "text": "किसी इंसान से बात कराओ", "intent": "escalation_request", "slots": {}, "stage": "qualify"}
+{"id": 95, "script": "devanagari", "text": "मैनेजर से बात करनी है", "intent": "escalation_request", "slots": {}, "stage": "qualify"}
+{"id": 96, "script": "devanagari", "text": "शिकायत दर्ज करनी है", "intent": "escalation_request", "slots": {}, "stage": "qualify"}
+{"id": 97, "script": "devanagari", "text": "मेरे आवेदन का क्या हुआ", "intent": "status_check", "slots": {}, "stage": "qualify"}
+{"id": 98, "script": "devanagari", "text": "मंज़ूरी में कितना समय लगेगा", "intent": "status_check", "slots": {}, "stage": "qualify"}
+{"id": 99, "script": "devanagari", "text": "अभी तक कोई जवाब नहीं आया", "intent": "status_check", "slots": {}, "stage": "qualify"}
+{"id": 100, "script": "devanagari", "text": "आज मौसम अच्छा है ना", "intent": "off_topic", "slots": {}, "stage": "qualify"}
+{"id": 101, "script": "devanagari", "text": "कल मैच देखा क्या", "intent": "off_topic", "slots": {}, "stage": "qualify"}
+{"id": 102, "script": "devanagari", "text": "आप कैसे हैं", "intent": "off_topic", "slots": {}, "stage": "qualify"}
+{"id": 103, "script": "devanagari", "text": "हम्म", "intent": "unclear", "slots": {}, "stage": "qualify"}
+{"id": 104, "script": "devanagari", "text": "ठीक", "intent": "unclear", "slots": {}, "stage": "qualify"}
+{"id": 105, "script": "devanagari", "text": "अच्छा", "intent": "unclear", "slots": {}, "stage": "qualify"}
+{"id": 106, "script": "mixed", "text": "मुझे personal loan चाहिए", "intent": "product_enquiry", "slots": {"product": "personal_loan"}, "stage": "qualify"}
+{"id": 107, "script": "mixed", "text": "home loan के बारे में जानना था", "intent": "product_enquiry", "slots": {"product": "home_loan"}, "stage": "qualify"}
+{"id": 108, "script": "mixed", "text": "business loan मिलेगा क्या shop ke liye", "intent": "product_enquiry", "slots": {"product": "business_loan"}, "stage": "qualify"}
+{"id": 109, "script": "mixed", "text": "gold पर loan chahiye", "intent": "product_enquiry", "slots": {"product": "gold_loan"}, "stage": "qualify"}
+{"id": 110, "script": "mixed", "text": "5 लाख का loan chahiye", "intent": "amount_request", "slots": {"amount_inr": 500000}, "stage": "qualify"}
+{"id": 111, "script": "mixed", "text": "मुझे 8 lakh चाहिए urgent", "intent": "amount_request", "slots": {"amount_inr": 800000}, "stage": "qualify"}
+{"id": 112, "script": "mixed", "text": "around 4 लाख ka arrangement", "intent": "amount_request", "slots": {"amount_inr": 400000}, "stage": "qualify"}
+{"id": 113, "script": "mixed", "text": "12 लाख home loan Pune में", "intent": "product_enquiry", "slots": {"product": "home_loan", "amount_inr": 1200000}, "stage": "qualify"}
+{"id": 114, "script": "mixed", "text": "salary 60k है", "intent": "income_statement", "slots": {"income_band": "50k_1l"}, "stage": "qualify"}
+{"id": 115, "script": "mixed", "text": "महीने का income 40000 है", "intent": "income_statement", "slots": {"income_band": "25k_50k"}, "stage": "qualify"}
+{"id": 116, "script": "mixed", "text": "1 लाख se zyada salary hai", "intent": "income_statement", "slots": {"income_band": "above_1l"}, "stage": "qualify"}
+{"id": 117, "script": "mixed", "text": "मैं 22000 कमाता हूँ per month", "intent": "income_statement", "slots": {"income_band": "under_25k"}, "stage": "qualify"}
+{"id": 118, "script": "mixed", "text": "PAN नहीं है अभी, but salary 60k hai", "intent": "kyc_status", "slots": {"pan_status": "missing", "income_band": "50k_1l"}, "stage": "kyc_collect"}
+{"id": 119, "script": "mixed", "text": "हाँ PAN card है मेरे पास", "intent": "kyc_status", "slots": {"pan_status": "available"}, "stage": "kyc_collect"}
+{"id": 120, "script": "mixed", "text": "PAN ready hai, आधार भी", "intent": "kyc_status", "slots": {"pan_status": "available"}, "stage": "kyc_collect"}
+{"id": 121, "script": "mixed", "text": "अभी PAN नहीं बना", "intent": "kyc_status", "slots": {"pan_status": "missing"}, "stage": "kyc_collect"}
+{"id": 122, "script": "mixed", "text": "हाँ theek hai, aage badho", "intent": "consent_response", "slots": {"consent_granted": true}, "stage": "consent"}
+{"id": 123, "script": "mixed", "text": "yes ठीक है permission है", "intent": "consent_response", "slots": {"consent_granted": true}, "stage": "consent"}
+{"id": 124, "script": "mixed", "text": "नहीं, details share मत करो", "intent": "consent_response", "slots": {"consent_granted": false}, "stage": "consent"}
+{"id": 125, "script": "mixed", "text": "अभी नहीं, later सोचूँगा", "intent": "consent_response", "slots": {"consent_granted": false}, "stage": "consent"}
+{"id": 126, "script": "mixed", "text": "interest rate कितना है bhai", "intent": "objection", "slots": {"objection": "interest_rate"}, "stage": "qualify"}
+{"id": 127, "script": "mixed", "text": "processing fees बहुत ज़्यादा है", "intent": "objection", "slots": {"objection": "fees"}, "stage": "qualify"}
+{"id": 128, "script": "mixed", "text": "EMI कितनी बनेगी monthly", "intent": "objection", "slots": {"objection": "emi"}, "stage": "qualify"}
+{"id": 129, "script": "mixed", "text": "ब्याज दर too high लग रही है", "intent": "objection", "slots": {"objection": "interest_rate"}, "stage": "qualify"}
+{"id": 130, "script": "mixed", "text": "दूसरी app kam rate de rahi hai", "intent": "objection", "slots": {"objection": "interest_rate"}, "stage": "qualify"}
+{"id": 131, "script": "mixed", "text": "बंद करो, stop sending", "intent": "opt_out", "slots": {"opted_out": true}, "stage": "qualify"}
+{"id": 132, "script": "mixed", "text": "mujhe नहीं चाहिए, unsubscribe", "intent": "opt_out", "slots": {"opted_out": true}, "stage": "qualify"}
+{"id": 133, "script": "mixed", "text": "मत भेजो messages, band karo", "intent": "opt_out", "slots": {"opted_out": true}, "stage": "qualify"}
+{"id": 134, "script": "mixed", "text": "किसी human से बात कराओ", "intent": "escalation_request", "slots": {}, "stage": "qualify"}
+{"id": 135, "script": "mixed", "text": "manager से बात करनी है", "intent": "escalation_request", "slots": {}, "stage": "qualify"}
+{"id": 136, "script": "mixed", "text": "मेरा application का क्या हुआ", "intent": "status_check", "slots": {}, "stage": "qualify"}
+{"id": 137, "script": "mixed", "text": "approval में कितना time लगेगा", "intent": "status_check", "slots": {}, "stage": "qualify"}
+{"id": 138, "script": "mixed", "text": "आज का weather अच्छा है", "intent": "off_topic", "slots": {}, "stage": "qualify"}
+{"id": 139, "script": "mixed", "text": "कल का match देखा क्या", "intent": "off_topic", "slots": {}, "stage": "qualify"}
+{"id": 140, "script": "mixed", "text": "ok ठीक", "intent": "unclear", "slots": {}, "stage": "qualify"}
+{"id": 141, "script": "mixed", "text": "हम्म ok", "intent": "unclear", "slots": {}, "stage": "qualify"}
+{"id": 142, "script": "latin", "text": "bhai 5 lakh ka personal loan chahiye, salary 60k hai, PAN nahi hai abhi", "intent": "product_enquiry", "slots": {"product": "personal_loan", "amount_inr": 500000, "income_band": "50k_1l", "pan_status": "missing"}, "stage": "qualify"}
+{"id": 143, "script": "mixed", "text": "मुझे 3 लाख chahiye, salary 45000, PAN है", "intent": "amount_request", "slots": {"amount_inr": 300000, "income_band": "25k_50k", "pan_status": "available"}, "stage": "qualify"}
+{"id": 144, "script": "latin", "text": "home loan 30 lakh, income above 1 lakh, pan card hai", "intent": "product_enquiry", "slots": {"product": "home_loan", "amount_inr": 3000000, "income_band": "above_1l", "pan_status": "available"}, "stage": "qualify"}
+{"id": 145, "script": "latin", "text": "interest rate zyada hai isliye nahi chahiye, band karo", "intent": "opt_out", "slots": {"opted_out": true, "objection": "interest_rate"}, "stage": "qualify"}
+{"id": 146, "script": "mixed", "text": "fees ज़्यादा है, मुझे नहीं चाहिए अब", "intent": "opt_out", "slots": {"opted_out": true, "objection": "fees"}, "stage": "qualify"}
+{"id": 147, "script": "latin", "text": "order 1234 5678 9012 ka status batao", "intent": "status_check", "slots": {}, "stage": "qualify"}
+{"id": 148, "script": "latin", "text": "5 lakh se zyada salary hai meri", "intent": "income_statement", "slots": {"income_band": "above_1l"}, "stage": "qualify"}
+{"id": 149, "script": "latin", "text": "loan chahiye tha par abhi sochna hai", "intent": "product_enquiry", "slots": {}, "stage": "qualify"}
+{"id": 150, "script": "mixed", "text": "aapka rate 11% है क्या? तब ठीक है", "intent": "objection", "slots": {"objection": "interest_rate"}, "stage": "qualify"}

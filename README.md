@@ -64,7 +64,7 @@ than appearing in a dashboard nobody opens.
 | 06 | Follow-up scheduler: ZSET timers, quiet hours, 24h window | ✅ done |
 | 07 | PII tokenization, consent ledger, audit log | ✅ done |
 | 08 | Eval harness: simulated personas, scorecard | ✅ done |
-| 09 | Hinglish / code-mixed intent + slot accuracy | ⬜ |
+| 09 | Hinglish / code-mixed intent + slot accuracy | ✅ done |
 | 10 | Traces, funnel view, cost per conversation | ⬜ |
 | 11 | Multi-stage image, Terraform → ECS Fargate | ⬜ |
 | 12 | Demo video, tradeoffs write-up, failure modes | ⬜ |
@@ -158,6 +158,9 @@ threadkeeper/
 │  ├─ scorecard.py         # six metrics, two of them hard failures
 │  ├─ runner.py            # N conversations, transcripts as artifacts
 │  ├─ gating_ab.py         # code- vs prompt-gated routing, measured
+│  ├─ intent_set.jsonl     # 150 hand-labelled code-mixed messages
+│  ├─ LABELLING.md         # the taxonomy and precedence rules
+│  ├─ intent_f1.py         # intent accuracy + slot F1, per script
 │  ├─ calibrate_tokens.py  # the estimator against the real tokenizer
 │  └─ memory_ab.py         # what tier 3 is actually worth
 ├─ dashboard/           # funnel + drop-off view
@@ -215,6 +218,10 @@ threadkeeper/
 | **Every metric is checkable without a human** | Six numbers, no LLM-as-judge in the gate. That constraint is what makes the suite runnable on every commit rather than once before a demo — and `hallucinated_rate` is only decidable because the mock lender computes from a fixed matrix rather than sampling. |
 | **Personas carry a prompt *and* a script** | The prompt makes the numbers mean something; the script makes CI free, offline and deterministic. A harness with only the second would be measuring my own regexes. |
 | **The prompt-gated variant is built properly, not as a strawman** | The A/B has to be capable of embarrassing the thesis, or it is decoration. Whatever number comes out is the number reported. |
+| **`intent` is required, every other field is optional** | The rest of the schema must be able to say "the customer didn't mention it" — inventing a value to fill a slot is the failure the whole design guards against. `intent` is the exception: a message is always doing *something*, and `unclear` is the answer when it is doing very little. Leaving it optional silently cost the few-shot arm 33 of 150 messages and reversed the comparison's result. |
+| **`intent` is per-turn state, never a slot** | It describes this message, not the customer. Merged into `slots` it would sit in the profile block forever — "intent: opt_out" long after they came back and asked about home loans — and be arbitrated by a conflict rule built for durable facts. |
+| **A consent refusal is `false`, not silence** | Absent and `false` route differently: `decide()` re-asks on absent and closes on `false`. A model that omits the field on "नहीं, details share मत करो" makes the agent ask a second time — which is the behaviour consent law exists to prevent. Worth 1.2 points of aggregate slot F1 to fix, and the trade is stated rather than hidden. |
+| **The loser strategy stays in the repo** | `EXTRACTION_SYSTEM_FEWSHOT` is still here, still selectable by `TK_EXTRACTION_STRATEGY=fewshot`, and still runnable head-to-head. It wins on intent and loses on slots; showing both is what makes the choice checkable rather than asserted. |
 | **The simulator signs, the browser posts** | The demo exercises the real ingress path including HMAC verification, and "resend" is a byte-identical redelivery rather than a mock of one. |
 
 ---
@@ -229,6 +236,8 @@ threadkeeper/
 | Is code-gated routing better than prompt-gated? | **Cannot say at this sample size** — two runs (n=5 and n=10 per arm) disagreed on the direction of the headline metric. Reported as inconclusive rather than picking the flattering run | `uv run python -m evals.gating_ab` |
 | What does a conversation cost? | **$0.005** on gemini-3.5-flash-lite → 50 conversations ≈ **$0.26** | `uv run python -m evals.runner` |
 | What is tier 3 worth? | **0 → 100%** objection recall on a returning customer, for **+83 context tokens/turn**, 0 false positives on the control | `uv run python -m evals.memory_ab` |
+| Can it read Hinglish and Devanagari? | **Intent 90.0%, slot F1 89.8%** over 150 hand-labelled code-mixed messages. Per script: latin **91.7%**, Devanagari **89.6%**, mixed **87.2%** slot F1 | `uv run python -m evals.intent_f1` |
+| Which extraction prompt is better? | **Split decision.** Few-shot wins intent (94.0% vs 90.0%); rules wins slots (F1 92.4% vs 87.1%, precision 90.6% vs 84.1%). Rules ships — slots drive the funnel | `uv run python -m evals.intent_f1 --compare` |
 
 The second number has a caveat worth stating: retrieval on its own bought
 **nothing**. With the prior objection sitting in the prompt but only a hedged
@@ -237,6 +246,24 @@ stage guidance instead. The gain came from telling one specific moment, the
 opening turn of a return visit, to use it. The tokens were being paid either
 way. Sample is 3 scenarios; Phase 08 scales it.
 
+The Phase 09 numbers come with two caveats of their own, both worth more than the
+numbers. First, the head-to-head between prompt strategies was initially **wrong
+in the opposite direction** — `intent` was an optional field in the response
+schema, the few-shot arm omitted it on 33 of 150 messages, and it lost by 8.7
+points. Making one field required flipped the result. The first comparison was
+measuring the schema, not the prompt.
+
+Second, one accepted regression. Teaching the extractor that a consent *refusal*
+is `false` rather than an absent field took `consent_granted` F1 from 88.0% to
+**100%** — and cost `product` precision, 84% → 62%, because the model began
+filling `product` on opt-out messages that mention no loan at all ("stop",
+"unsubscribe kar do"). Aggregate slot F1 is 1.2 points worse for it. **Kept
+anyway:** `policy.decide()` closes on `granted is False` but re-asks when the
+field is absent, so the old behaviour asked someone who had already said "नहीं"
+a second time. A worse average is the right trade against re-soliciting a
+customer who declined. The product invention is a
+[known gap](#known-gaps), with a structural fix rather than a fifth prompt edit.
+
 ---
 
 ## Known gaps
@@ -244,3 +271,22 @@ way. Sample is 3 scenarios; Phase 08 scales it.
 Tracked honestly, phase by phase — see the build status table above for what does
 not exist yet. Nothing in this repo has been run against a real WhatsApp Business
 account, and by design it never will be.
+
+**The extractor invents a product on opt-out messages.** `product` precision is
+61.8%: given "stop", "unsubscribe kar do" or "बंद करो, stop sending" — messages
+that mention no loan of any kind — the model answers `personal_loan`. Recall is
+100%, so it never misses a product that was named; it adds ones that were not.
+
+Four prompt edits did not fix it, and I stopped there rather than write a fifth,
+because tuning prose against a 150-row set stops being measurement and starts
+being overfitting. The mechanism looks structural: `product` is a four-value enum
+with no way to say "none of these", so the model picks the modal value rather
+than omitting the field. The fix I would make next is to give it somewhere to put
+the answer — an explicit `unspecified` member, stripped before the slot merge —
+and re-measure. That is a schema change with a real experiment attached, which is
+a different kind of work from another sentence in a prompt.
+
+It is bounded in production: `product` only selects which lender matrix
+`fetch_offers` reads, and an opt-out routes to `close` before offers are ever
+fetched. It would matter for the Phase 10 funnel view, where it would report
+product interest nobody expressed.

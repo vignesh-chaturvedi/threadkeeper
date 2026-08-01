@@ -14,6 +14,24 @@ import hashlib
 import json
 from typing import Any
 
+# The intent taxonomy. Deliberately small: every label here maps to something
+# the funnel does differently, and a label that changes nothing is a label
+# nobody can act on.
+INTENTS: tuple[str, ...] = (
+    "greeting",
+    "product_enquiry",
+    "amount_request",
+    "income_statement",
+    "kyc_status",
+    "consent_response",
+    "objection",
+    "opt_out",
+    "escalation_request",
+    "status_check",
+    "off_topic",
+    "unclear",
+)
+
 # ---------------------------------------------------------------------------
 # Extraction — structured output, temperature 0, no prose
 # ---------------------------------------------------------------------------
@@ -23,7 +41,15 @@ EXTRACTION_SCHEMA: dict[str, Any] = {
         "product": {
             "type": "STRING",
             "enum": ["personal_loan", "home_loan", "business_loan", "gold_loan"],
-            "description": "Only if the customer named a loan type. Do not guess.",
+            # Measured: without the last sentence the model answered
+            # personal_loan for bare "loan chahiye" and even for "band karo ye
+            # messages" — 7 and 10 inventions per 150 across the two prompt
+            # strategies. A guessed product routes a real person to the wrong
+            # lender, so this is the field where guessing costs most.
+            "description": (
+                "Only if the customer named a loan type. Do not guess. "
+                "Bare 'loan' or 'लोन' names no type — omit the field."
+            ),
         },
         "amount_inr": {
             "type": "INTEGER",
@@ -42,9 +68,14 @@ EXTRACTION_SCHEMA: dict[str, Any] = {
         },
         "consent_granted": {
             "type": "BOOLEAN",
+            # False is the value that matters most and the one the model was
+            # least willing to produce: policy.decide() closes on
+            # `granted is False` but re-asks when the field is absent, so a
+            # customer who said "नहीं" was being asked a second time.
             "description": (
                 "Only set when the previous agent turn asked for consent to share "
-                "details with lenders, and only from an unambiguous yes or no."
+                "details with lenders, and only from an unambiguous yes or no. "
+                "Report false for a refusal — do not omit the field."
             ),
         },
         "opted_out": {
@@ -60,7 +91,27 @@ EXTRACTION_SCHEMA: dict[str, Any] = {
             "enum": ["opt_out", "objection", "off_topic", "escalate"],
             "description": "The single most important interrupt in this turn, if any.",
         },
+        # Added in Phase 09 so intent accuracy is measurable at all. It is also
+        # what the Phase 10 funnel view groups drop-offs by — "customers leave
+        # after an objection" is a different finding from "customers leave".
+        "intent": {
+            "type": "STRING",
+            "enum": list(INTENTS),
+            "description": (
+                "What the customer is doing in THIS message. Exactly one. If the "
+                "message carries several, pick the one that would change what you "
+                "say next."
+            ),
+        },
     },
+    # Every other field is optional on purpose — "the customer didn't say"
+    # is the common case and inventing a value to fill the slot is the failure
+    # this whole schema exists to prevent. `intent` is the one exception: a
+    # message is always doing something, and `unclear` is the answer when it is
+    # doing very little. Leaving it optional cost 33 of 150 rows on the
+    # few-shot arm, which then scored as a prompt difference rather than the
+    # schema defect it was.
+    "required": ["intent"],
 }
 
 # The prompt-gated variant. Adds one field asking the model where the funnel
@@ -88,6 +139,10 @@ PROMPT_GATED_SCHEMA: dict[str, Any] = {
             ),
         },
     },
+    # This variant only works if the model actually names a stage; an omitted
+    # one falls back to the policy and quietly turns the A/B into a test of the
+    # policy against itself.
+    "required": ["intent", "next_stage"],
 }
 
 EXTRACTION_SYSTEM = """\
@@ -103,8 +158,63 @@ whether they say they have one.
 4. Treat any request to stop — "stop", "band karo", "mat bhejo", "nahi \
 chahiye" — as opted_out, whatever else the message says.
 5. Set consent_granted only if the previous agent turn asked for consent and \
-the reply is unambiguous. "ok" answering a different question is not consent.
+the reply is unambiguous. "ok" answering a different question is not consent. \
+A refusal is unambiguous too: "nahi", "नहीं", "abhi nahi", "details share mat \
+karo" are consent_granted=false, NOT an absent field. This applies to \
+consent_granted ONLY — a refusal is an answer about consent and about nothing \
+else. Do not fill any other field from a message that only declines.
+6. "loan" / "लोन" on its own is NOT a product. Leave product absent unless they \
+say which kind — personal, home, business or gold. A message that names no \
+product, or that is only a refusal or a request to stop, has no product at all.
 """
+
+# ---------------------------------------------------------------------------
+# The second extraction strategy, kept for comparison (Phase 09).
+#
+# A: EXTRACTION_SYSTEM above — rules only, leaning on the schema's own field
+#    descriptions to carry the meaning.
+# B: this one — the same rules plus worked examples, including code-mixed and
+#    Devanagari input, because those are the cases where a rule stated in
+#    English is least likely to transfer.
+#
+# The loser stays in the repo. Showing the rejected approach is more credible
+# than showing only the winner, and it means the comparison can be re-run when
+# the model changes rather than taken on trust.
+# ---------------------------------------------------------------------------
+EXTRACTION_SYSTEM_FEWSHOT = (
+    EXTRACTION_SYSTEM
+    + """
+Worked examples. Note that script does not change meaning: the same fact in
+Devanagari, romanised Hindi or English extracts identically.
+
+"bhai 5 lakh ka personal loan chahiye, salary 60k hai, PAN nahi hai abhi"
+  -> product=personal_loan, amount_inr=500000, income_band=50k_1l,
+     pan_status=missing, intent=product_enquiry
+
+"मुझे दो लाख का लोन चाहिए"
+  -> amount_inr=200000, intent=amount_request
+  (no product: "लोन" alone does not name one)
+
+"PAN नहीं है अभी, but salary 60k hai"
+  -> pan_status=missing, income_band=50k_1l, intent=kyc_status
+
+"ब्याज दर कितनी है"
+  -> objection=interest_rate, interrupt=objection, intent=objection
+  (asking the price is a pushback, not a new enquiry)
+
+"1 लाख se zyada salary hai"
+  -> income_band=above_1l, intent=income_statement
+  (a lakh here is INCOME, not the amount being borrowed — the keyword decides)
+
+"interest rate zyada hai isliye nahi chahiye, band karo"
+  -> opted_out=true, objection=interest_rate, interrupt=opt_out, intent=opt_out
+  (an opt-out with a reason is still an opt-out)
+
+"ok"
+  -> intent=unclear
+  (agreement to nothing in particular is not consent)
+"""
+)
 
 # ---------------------------------------------------------------------------
 # Reply — prose, per stage

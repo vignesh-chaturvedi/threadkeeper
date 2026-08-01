@@ -118,6 +118,49 @@ def _income_band(rupees: int) -> str:
     return "above_1l"
 
 
+_GREETING = re.compile(r"^\s*(hi|hello|hey|namaste|namaskar|नमस्ते|नमस्कार|हैलो)\b", re.I)
+_STATUS = re.compile(
+    r"\b(status|application|apply kiya|kya hua|update|approval|kitna time|"
+    r"आवेदन|मंज़ूरी|जवाब|समय लगेगा)\b",
+    re.I,
+)
+_LOAN_WORD = re.compile(r"\b(loan|लोन|ऋण|finance)\b", re.I)
+
+
+def _intent_for(text: str, data: dict[str, Any], stage: str) -> str:
+    """The precedence in evals/LABELLING.md, as code.
+
+    Deliberately mirrors the documented rules rather than inventing its own, so
+    the gap between this and the real provider measures understanding rather
+    than two people disagreeing about what a label means.
+    """
+    if data.get("opted_out"):
+        return "opt_out"
+    if data.get("interrupt") == "escalate":
+        return "escalation_request"
+    if data.get("product"):
+        return "product_enquiry"
+    if data.get("interrupt") == "objection":
+        return "objection"
+    if "consent_granted" in data:
+        return "consent_response"
+    if data.get("pan_status"):
+        return "kyc_status"
+    if data.get("income_band"):
+        return "income_statement"
+    if data.get("amount_inr"):
+        return "amount_request"
+    if _STATUS.search(text):
+        return "status_check"
+    if _GREETING.search(text):
+        return "greeting"
+    if data.get("interrupt") == "off_topic":
+        return "off_topic"
+    if _LOAN_WORD.search(text):
+        return "product_enquiry"
+    return "unclear"
+
+
 class FakeProvider:
     name = "fake"
 
@@ -201,6 +244,12 @@ class FakeProvider:
                 data["next_stage"] = "consent"
             else:
                 data["next_stage"] = "qualify"
+
+        # Intent, by the same precedence the labelling guide documents. This is
+        # a keyword baseline, not a model — and reporting it alongside the real
+        # provider is what turns "the model helps" into a number.
+        if "intent" in (schema.get("properties") or {}):
+            data["intent"] = _intent_for(text, data, stage)
 
         # Only keep keys the schema actually declares, so the fake cannot
         # invent a slot the real provider would never return.

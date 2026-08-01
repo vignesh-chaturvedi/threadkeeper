@@ -158,6 +158,14 @@ class Settings(BaseSettings):
         ),
     )
 
+    extraction_strategy: Literal["rules", "fewshot"] = Field(
+        default="rules",
+        description=(
+            "Which extraction prompt to use. Compared head-to-head against the "
+            "labelled set in evals/intent_f1.py; the loser stays in the repo."
+        ),
+    )
+
     # --- funnel ------------------------------------------------------------
     stage_gating: Literal["code", "prompt"] = Field(
         default="code",

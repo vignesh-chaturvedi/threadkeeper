@@ -48,6 +48,9 @@ class FunnelState(TypedDict, total=False):
 
     # Set by extraction, consumed by the policy, cleared each turn.
     interrupt: str | None
+    # What this message is doing, from the 12-value taxonomy. Per-turn, never a
+    # slot — Phase 09 measures it, Phase 10 groups drop-off by it.
+    intent: str | None
     escalate: bool
 
     # Decided by the policy before any node runs, so the routing decision is a
@@ -70,6 +73,7 @@ def new_state(conversation_id: str, stage: str = "intent_route") -> FunnelState:
         turn_text="",
         reply="",
         interrupt=None,
+        intent=None,
         escalate=False,
         next_stage=stage,
         route_reason="new_conversation",

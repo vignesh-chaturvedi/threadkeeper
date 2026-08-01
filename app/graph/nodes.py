@@ -101,7 +101,11 @@ async def extract_slots(state: FunnelState) -> dict[str, Any]:
 
     try:
         result = await provider.extract(
-            system=prompts.EXTRACTION_SYSTEM,
+            system=(
+                prompts.EXTRACTION_SYSTEM_FEWSHOT
+                if get_settings().extraction_strategy == "fewshot"
+                else prompts.EXTRACTION_SYSTEM
+            ),
             user=prompts.render_extraction_prompt(stage, known, state.get("turn_text", "")),
             schema=schema,
         )
@@ -123,8 +127,12 @@ async def extract_slots(state: FunnelState) -> dict[str, Any]:
     # `consent_granted` becomes a consent event, not a slot. `next_stage` is a
     # routing suggestion the prompt-gated variant returns — persisting it would
     # put "next_stage" in the customer's profile block, which is both wrong and
-    # would quietly bias the A/B against the variant.
-    _NOT_SLOTS = {"consent_granted", "next_stage"}
+    # would quietly bias the A/B against the variant. `intent` describes this
+    # message, not the customer: stored as a slot it would sit in the profile
+    # block forever ("intent: opt_out" long after they came back) and be fought
+    # over by a conflict rule built for durable facts. It rides on the state as
+    # a per-turn field instead, which is also what Phase 10 groups drop-off by.
+    _NOT_SLOTS = {"consent_granted", "next_stage", "intent"}
     slots, sources = _merge_slots(
         known,
         state.get("slot_sources") or {},
@@ -136,6 +144,7 @@ async def extract_slots(state: FunnelState) -> dict[str, Any]:
         "slots": slots,
         "slot_sources": sources,
         "consent": consent,
+        "intent": extracted.get("intent"),
         "interrupt": extracted.get("interrupt"),
         "escalate": extracted.get("interrupt") == "escalate",
         "usage": _add_usage(state, usage),

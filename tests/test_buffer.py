@@ -21,7 +21,12 @@ from app.settings import get_settings
 
 pytestmark = pytest.mark.integration
 
-SECRET = "test-app-secret"
+# Read from settings rather than hardcoded, so the suite signs with whatever
+# secret the environment actually configured. Hardcoding "test-app-secret"
+# passed locally — where conftest's setdefault supplied it — and produced 12
+# authentication failures in CI, which sets its own value. A test that assumes
+# a config value it does not control is a test that only runs on one machine.
+SECRET = get_settings().whatsapp_app_secret
 
 
 def _signed(text: str, msg_id: str, sender: str) -> tuple[bytes, dict[str, str]]:

@@ -145,12 +145,35 @@ class TestFunnel:
                 assert row["pct_of_previous"] == pytest.approx(expected)
                 assert row["dropped_here"] == max(0, previous["reached"] - row["reached"])
 
-    async def test_the_funnel_never_widens(self, live_db: None) -> None:
-        """Reaching offers requires having reached consent. If a later stage
-        outnumbers an earlier one, the transition log has a path that skips a gate."""
-        rows = await queries.funnel()
-        counts = [r["reached"] for r in rows]
-        assert counts == sorted(counts, reverse=True), counts
+    async def test_the_gated_funnel_never_widens(self, live_db: None) -> None:
+        """From `consent` on, each stage requires the one before it.
+
+        `qualify` is deliberately excluded, and finding out why is what this test
+        was originally for. It asserted monotonicity across all five stages,
+        which looks obviously true and is not: `qualify` is not a step, it is
+        where the policy sends a conversation whose product is unknown. A
+        customer whose first message is "personal loan chahiye" is routed
+        straight to `consent` and never appears in `qualify` at all — so the
+        chart can legitimately show more leads reaching consent than qualify.
+
+        The invariant that does hold is over the gated stages, because
+        `decide()` will not reach any of them without the previous one's
+        precondition. If *this* widens, the transition log contains a path that
+        skipped a gate, which in a consent-bearing funnel is an incident.
+        """
+        rows = {r["stage"]: r["reached"] for r in await queries.funnel()}
+        gated = [rows[s] for s in ("consent", "kyc_collect", "offer_match", "close")]
+        assert gated == sorted(gated, reverse=True), gated
+
+    async def test_qualify_is_a_remediation_stage_not_a_step(self) -> None:
+        """The reason the invariant above is scoped. Asserted against the policy
+        rather than against data, so it stays true when the seed changes."""
+        straight_to_consent = policy.decide({"slots": {"product": "personal_loan"}, "consent": {}})
+        assert straight_to_consent.stage == "consent"
+
+        no_product = policy.decide({"slots": {}, "consent": {}})
+        assert no_product.stage == "qualify"
+        assert no_product.reason == "product_unknown"
 
 
 # ============================================================== UNIT ECONOMICS

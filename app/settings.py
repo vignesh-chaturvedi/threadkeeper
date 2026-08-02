@@ -204,6 +204,18 @@ class Settings(BaseSettings):
         ),
     )
 
+    # --- lifecycle ---------------------------------------------------------
+    drain_timeout_s: float = Field(
+        default=25.0,
+        ge=0.0,
+        description=(
+            "How long a shutdown waits for in-flight turns before cancelling "
+            "them. Must be read together with the orchestrator's stop timeout: "
+            "ECS sends SIGKILL after `stop_timeout`, so a drain longer than "
+            "that is a drain that never completes. Terraform sets 30s."
+        ),
+    )
+
     # --- local tooling -----------------------------------------------------
     enable_simulator: bool = Field(
         default=True,

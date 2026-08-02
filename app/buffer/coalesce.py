@@ -252,12 +252,42 @@ async def pending(cid: str) -> dict[str, object]:
     }
 
 
-async def shutdown() -> None:
-    """Cancel outstanding settle tasks so the process can exit promptly."""
+async def drain(timeout_s: float) -> dict[str, int]:
+    """Let in-flight turns finish. Cancel only what is still running after that.
+
+    This is the difference between a deploy nobody notices and a deploy that
+    eats replies. A settle task is a customer's turn: their message is already
+    buffered in Redis and their reply has not been sent. Cancelling it — which
+    is what this function used to do unconditionally — means the message is
+    consumed and nothing ever comes back.
+
+    Cancellation is still correct in the one case it was designed for: a *newer*
+    message supersedes the turn in flight, and the customer gets a reply to the
+    newer one. A SIGTERM is not a newer message.
+
+    Bounded, because a hung turn must not hold the container open until the
+    orchestrator escalates to SIGKILL — which would cancel everything anyway,
+    with no log line explaining it. Waiting a known number of seconds and then
+    saying what was abandoned is strictly better than being killed.
+    """
     tasks = [t for t in _inflight.values() if not t.done()]
-    for task in tasks:
+    if not tasks:
+        log.info("buffer_drained", finished=0, cancelled=0)
+        return {"finished": 0, "cancelled": 0}
+
+    log.info("buffer_draining", in_flight=len(tasks), timeout_s=timeout_s)
+    done, pending = await asyncio.wait(tasks, timeout=timeout_s)
+
+    for task in pending:
         task.cancel()
-    if tasks:
-        await asyncio.gather(*tasks, return_exceptions=True)
-        log.info("buffer_shutdown", cancelled=len(tasks))
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
+
     _inflight.clear()
+    log.info("buffer_drained", finished=len(done), cancelled=len(pending))
+    return {"finished": len(done), "cancelled": len(pending)}
+
+
+async def shutdown() -> None:
+    """Immediate stop, no grace. Tests and local Ctrl-C; never a deploy."""
+    await drain(timeout_s=0)

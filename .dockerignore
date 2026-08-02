@@ -1,0 +1,43 @@
+# The build context is uploaded to the daemon in full before the first
+# instruction runs. Without this file that was 835MB — mostly a local .venv the
+# image rebuilds from uv.lock anyway, and a .git directory the image has no use
+# for. Slow on every build, and worse: anything here that lands in a layer is
+# shipped to a registry.
+#
+# .env is the one that matters. It holds a live API key, a Fernet vault key and
+# the BSP app secret. No COPY in the Dockerfile names it, but a future `COPY . .`
+# would, and by then the leak is in a published image layer rather than in a
+# diff someone could have reviewed.
+
+.env
+.env.*
+!.env.example
+
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+.git/
+.github/
+.gitignore
+.gitleaks.toml
+.pre-commit-config.yaml
+
+# Build artefacts and local output, none of which belong in an image.
+reports/
+evals/artifacts/
+infra/.terraform/
+infra/*.tfstate*
+dashboard/
+
+# Tests are not shipped: the image runs the application, and CI runs the tests
+# from a checkout. Copying them in would add the whole tests tree to every pull
+# for the benefit of nobody.
+tests/
+
+.DS_Store
+*.md
+!README.md

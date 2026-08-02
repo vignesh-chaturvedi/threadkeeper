@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 
-from app import cache, db
+from app import cache, db, lifecycle
 from app.buffer import coalesce
 from app.ingress import simulator, webhook
 from app.logging import bind_contextvars, clear_contextvars, configure_logging, get_logger
@@ -24,8 +24,6 @@ from app.obs import console
 from app.settings import get_settings
 
 log = get_logger(__name__)
-
-STARTED_AT = time.time()
 
 
 @asynccontextmanager
@@ -38,10 +36,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
-        await coalesce.shutdown()
+        # Order matters, and it is the reverse of startup for a reason: the
+        # turns being drained are still using both stores, so closing the pool
+        # first would fail every turn we are trying to let finish.
+        lifecycle.begin_drain()
+        drained = await coalesce.drain(settings.drain_timeout_s)
         await cache.close_redis()
         await db.close_pool()
-        log.info("shutdown")
+        log.info("shutdown", **drained)
 
 
 def create_app() -> FastAPI:
@@ -83,12 +85,23 @@ def create_app() -> FastAPI:
 
     @app.get("/health/live", tags=["health"])
     async def live() -> dict[str, object]:
-        """Liveness: is the process alive? Touches nothing external, by design."""
-        return {"status": "ok", "uptime_s": round(time.time() - STARTED_AT, 1)}
+        """Liveness: is the process alive? Touches nothing external, by design.
+
+        Stays 200 while draining. A draining container is healthy — it is
+        finishing work on purpose — and failing liveness here would have the
+        orchestrator kill it mid-turn, which is the precise outcome the drain
+        exists to avoid.
+        """
+        return {"status": "ok", "uptime_s": round(lifecycle.uptime(), 1)}
 
     @app.get("/health/ready", tags=["health"])
     async def ready() -> JSONResponse:
-        """Readiness: can this process actually serve a turn right now?"""
+        """Readiness: should this process receive new work right now?"""
+        if lifecycle.is_draining():
+            return JSONResponse(
+                status_code=503,
+                content={"status": "draining", "checks": {}},
+            )
         checks = {"postgres": await db.ping(), "redis": await cache.ping()}
         healthy = all(checks.values())
         return JSONResponse(

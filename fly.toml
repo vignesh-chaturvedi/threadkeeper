@@ -1,0 +1,69 @@
+# The cheap path to a live URL.
+#
+# The plan's own advice: "If you're short on time, drop Terraform and ship on
+# Fly.io or Railway instead. A working demo link beats unfinished infrastructure
+# every single time." The Terraform in infra/ is the answer to "can you do this
+# properly"; this file is the answer to "is it running somewhere I can click".
+#
+# Both deploy the same image. Neither is a mock of the other.
+#
+#     fly launch --no-deploy --copy-config
+#     fly postgres create --name threadkeeper-db && fly postgres attach threadkeeper-db
+#     fly redis create
+#     fly secrets set TK_VAULT_KEY=... TK_CUSTOMER_REF_SECRET=... TK_GEMINI_API_KEY=...
+#     fly deploy
+
+app = "threadkeeper"
+primary_region = "bom" # Mumbai, same reasoning as the Terraform region
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  TK_ENV = "prod"
+  TK_LOG_FORMAT = "json"
+  TK_LLM_PROVIDER = "gemini"
+  TK_OUTBOUND_TRANSPORT = "mock"
+  TK_ENABLE_SIMULATOR = "false"
+  TK_DRAIN_TIMEOUT_S = "25"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  # Fly gives a TLS certificate on *.fly.dev for free, which the ALB in infra/
+  # does not — that needs a domain and a certificate to own. It is the reason
+  # this is the deployable demo and that one is the reference architecture.
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "30s"
+    interval = "15s"
+    method = "GET"
+    timeout = "5s"
+    path = "/health/ready"
+
+# 40s, matching the ECS stopTimeout, and for the same reason: it has to exceed
+# uvicorn's 30s graceful shutdown, which has to exceed TK_DRAIN_TIMEOUT_S at 25s.
+# Fly's default is 5s, which would kill every in-flight turn on every deploy —
+# the exact failure this phase exists to prevent, in a field that defaults wrong.
+kill_signal = "SIGTERM"
+kill_timeout = "40s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"
+
+# The follow-up worker. Same image, different command, no public port — the
+# scheduler claims work with FOR UPDATE SKIP LOCKED, so it never races the API.
+[processes]
+  app = "uvicorn app.main:api --host 0.0.0.0 --port 8000 --timeout-graceful-shutdown 30"
+  worker = "python -m app.scheduler.worker"
+
+# Migrations before the new version takes traffic. One-shot, so two machines
+# starting together cannot race the same migration — the same reasoning as the
+# ECS run-task in deploy.sh.
+[deploy]
+  release_command = "sh -c 'alembic upgrade head && python -m app.graph.checkpointer'"
+  strategy = "rolling"

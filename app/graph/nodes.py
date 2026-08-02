@@ -196,6 +196,7 @@ async def _speak(
     *,
     offers: list[dict[str, Any]] | None = None,
     offers_error: str | None = None,
+    application: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     provider = get_provider()
 
@@ -210,6 +211,7 @@ async def _speak(
                 returning=bool(state.get("returning")),
                 offers=offers,
                 offers_error=offers_error,
+                application=application,
             ),
             history=state.get("history", []),  # type: ignore[arg-type]
         )
@@ -295,7 +297,49 @@ async def offer_match(state: FunnelState) -> dict[str, Any]:
 
 
 async def close(state: FunnelState) -> dict[str, Any]:
-    return await _speak(state, "close")
+    """The end of the funnel — which is only sometimes a sale.
+
+    Three different things arrive here: a customer who accepted an offer, one who
+    opted out, and one who refused consent. Only the first opens an application,
+    and it opens it *before* speaking, for the same reason offer_match fetches
+    before speaking: a confirmation written before the write returns can only
+    describe an application that might not exist.
+    """
+    if state.get("route_reason") != "offer_accepted":
+        return await _speak(state, "close")
+
+    offer = state.get("last_offer") or {}
+    consent = state.get("consent") or {}
+    conversation_id = state.get("conversation_id", "")
+
+    result = await tool_client.invoke(
+        "create_application",
+        {
+            "conversation_id": conversation_id,
+            "offer_id": offer.get("offer_id") or offer.get("id") or "",
+            # The hash of the wording they actually saw, not a boolean. This is
+            # what makes the application traceable back to a specific consent.
+            "consent_ref": consent.get("wording_hash") or "",
+        },
+        stage="close",
+        state=state,
+        conversation_id=conversation_id,
+    )
+
+    if result.get("error"):
+        # The lender refused or the write failed. Say so rather than confirming
+        # an application nobody opened — a false confirmation in lending is a
+        # complaint, and an escalation is the honest outcome.
+        log.warning("application_failed", reason=result.get("error"))
+        patch = await _speak(state, "escalate")
+        patch["escalate"] = True
+        patch["stage"] = "escalate"
+        patch["route_reason"] = f"application_failed_{result['error']}"
+        return patch
+
+    patch = await _speak(state, "close", application=result)
+    patch["application"] = result
+    return patch
 
 
 async def escalate(state: FunnelState) -> dict[str, Any]:

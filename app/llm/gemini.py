@@ -18,6 +18,7 @@ import asyncio
 import json
 import secrets
 import time
+from contextvars import ContextVar
 from typing import Any
 
 import httpx
@@ -58,10 +59,43 @@ class _RateLimiter:
             if len(self._times) >= max_rpm:
                 wait = 60.0 - (now - self._times[0]) + 0.05
                 log.info("llm_rate_limited", waiting_s=round(wait, 2), max_rpm=max_rpm)
+                # Time spent deliberately sleeping is not time the model took.
+                # Without this the console reported a 50-second turn at consent,
+                # which was 47 seconds of our own throttle and looked like a
+                # pathological model call.
+                try:
+                    _throttle.get()["ms"] += int(wait * 1000)
+                except LookupError:
+                    pass
                 await asyncio.sleep(wait)
                 now = time.monotonic()
                 self._times = [t for t in self._times if now - t < 60.0]
             self._times.append(now)
+
+
+# Per-turn throttle accounting, held in a *mutable* box on purpose.
+#
+# A ContextVar holding an int does not work here: the graph runs its nodes in
+# child tasks, and a task inherits a *copy* of the context, so a `.set()` inside
+# a node is invisible to the caller that started the turn. Every wait was being
+# recorded and then discarded, and the console went on reporting 50-second turns.
+# Storing one dict and mutating it in place shares the object across those
+# copies, which is the behaviour actually wanted.
+_throttle: ContextVar[dict[str, int]] = ContextVar("llm_throttle")
+
+
+def begin_turn() -> None:
+    """Start a fresh throttle account. Called once per turn, by the runner."""
+    _throttle.set({"ms": 0})
+
+
+def throttled_ms() -> int:
+    """Milliseconds spent waiting on our own rate limiter since `begin_turn`."""
+    try:
+        return _throttle.get()["ms"]
+    except LookupError:
+        # Nobody opened an account — a direct provider call outside a turn.
+        return 0
 
 
 _limiter = _RateLimiter()

@@ -91,7 +91,23 @@ def _objection_in(text: str) -> str | None:
 
 
 _OFF_TOPIC = re.compile(r"\b(weather|cricket|match|movie|khana|mausam|kaise ho)\b", re.I)
-_HUMAN = re.compile(r"\b(human|agent|manager|representative|baat kara|complaint)\b", re.I)
+# "baat kara" carries no trailing \b: the natural forms are "baat karao" and
+# "baat karwao", and a word boundary after "kara" matches neither. That cost a
+# whole seeded escalation — "kisi insaan se baat karao" routed to consent.
+_HUMAN = re.compile(
+    r"\b(human|agent|manager|representative|complaint|insaan|aadmi|banda)\b|baat kar",
+    re.I,
+)
+
+# Accepting an offer, as opposed to agreeing in general. Deliberately narrower
+# than "haan": the policy also requires that an offer was actually shown, but a
+# fake that says yes to everything would make that guard untestable.
+_ACCEPT = re.compile(
+    r"\b(pehla|pehle|dusra|first|second|ye wala|yahi)\b.{0,18}\b(theek|thik|sahi|ok|chahiye)\b"
+    r"|\bapply kar\w*"
+    r"|\b(go ahead|proceed|aage badh\w*)\b",
+    re.I,
+)
 
 _STAGE_LINE = re.compile(r"^CURRENT STAGE:\s*(\S+)", re.M)
 _MESSAGE_BLOCK = re.compile(r"CUSTOMER MESSAGE:\s*\n(.*)\Z", re.S)
@@ -218,6 +234,12 @@ class FakeProvider:
             data["pan_status"] = "missing"
         elif _PAN_PRESENT.search(text):
             data["pan_status"] = "available"
+
+        # --- accepting an offer is only meaningful where one was shown ----
+        # Same shape as consent below: a fact whose meaning depends on what the
+        # previous agent turn did, so the stage is what makes it readable.
+        if stage == "offer_match" and _ACCEPT.search(text):
+            data["offer_accepted"] = True
 
         # --- consent is only meaningful where it was asked ----------------
         if stage == "consent":

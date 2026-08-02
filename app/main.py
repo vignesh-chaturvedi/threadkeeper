@@ -20,6 +20,7 @@ from app import cache, db
 from app.buffer import coalesce
 from app.ingress import simulator, webhook
 from app.logging import bind_contextvars, clear_contextvars, configure_logging, get_logger
+from app.obs import console
 from app.settings import get_settings
 
 log = get_logger(__name__)
@@ -108,6 +109,10 @@ def create_app() -> FastAPI:
         return {"open": len(queue), "escalations": queue}
 
     app.include_router(webhook.router)
+    # The console reads; it never writes. Mounted in every environment because
+    # "what is the funnel doing" is a production question, not a dev affordance —
+    # unlike the simulator below, which forges inbound traffic.
+    app.include_router(console.router)
 
     # The simulator is a development affordance, not a feature. Settings force
     # it off outside local/test; this is the second lock on the same door.

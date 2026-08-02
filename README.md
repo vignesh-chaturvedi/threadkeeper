@@ -27,7 +27,11 @@ That brings up Postgres 16 + pgvector, Redis 7, the API, and the follow-up
 worker, applying migrations first. Readiness returns `200` only when both stores
 answer.
 
-Then open **http://localhost:8000/sim** — a fake WhatsApp client that posts
+Then open **http://localhost:8000/console** — the funnel, unit economics and a
+per-turn replay of any conversation. It reads whatever traffic exists, so run the
+seeder above first on a fresh database.
+
+And **http://localhost:8000/sim** — a fake WhatsApp client that posts
 genuinely HMAC-signed payloads to the real webhook. Buttons for a 4-message
 burst, a byte-identical redelivery, and a tampered signature, with an inspector
 pane showing what ingress did with each one.
@@ -41,6 +45,7 @@ Running the tests, the evals, or the API outside containers:
 uv sync --all-groups
 uv run pytest                          # 310 tests
 uv run python -m evals.runner          # 5 simulated customers, free, ~1s
+uv run python -m evals.seed_console --reset   # traffic for /console, free
 uv run uvicorn app.main:api --reload
 ```
 
@@ -65,7 +70,7 @@ than appearing in a dashboard nobody opens.
 | 07 | PII tokenization, consent ledger, audit log | ✅ done |
 | 08 | Eval harness: simulated personas, scorecard | ✅ done |
 | 09 | Hinglish / code-mixed intent + slot accuracy | ✅ done |
-| 10 | Traces, funnel view, cost per conversation | ⬜ |
+| 10 | Traces, funnel view, cost per conversation | ✅ done |
 | 11 | Multi-stage image, Terraform → ECS Fargate | ⬜ |
 | 12 | Demo video, tradeoffs write-up, failure modes | ⬜ |
 
@@ -147,6 +152,10 @@ threadkeeper/
 │  │  ├─ audit.py       #   prompt hash + model, per turn
 │  │  └─ refs.py        #   customer_ref HMAC (Phase 01)
 │  ├─ obs/              # traces, cost accounting, funnel metrics
+│  │  ├─ trace.py       #   one row per turn: stages, tokens, latency, cost
+│  │  ├─ cost.py        #   one price list for the whole project
+│  │  ├─ queries.py     #   every console figure, as SQL you can re-run
+│  │  └─ console.py     #   /console — funnel, economics, replay inspector
 │  ├─ db.py             # one psycopg3 async pool
 │  ├─ cache.py          # redis client
 │  ├─ logging.py        # structlog JSON + conversation_id contextvar
@@ -158,6 +167,7 @@ threadkeeper/
 │  ├─ scorecard.py         # six metrics, two of them hard failures
 │  ├─ runner.py            # N conversations, transcripts as artifacts
 │  ├─ gating_ab.py         # code- vs prompt-gated routing, measured
+│  ├─ seed_console.py      # real traffic through the real pipeline
 │  ├─ intent_set.jsonl     # 150 hand-labelled code-mixed messages
 │  ├─ LABELLING.md         # the taxonomy and precedence rules
 │  ├─ intent_f1.py         # intent accuracy + slot F1, per script
@@ -222,6 +232,12 @@ threadkeeper/
 | **`intent` is per-turn state, never a slot** | It describes this message, not the customer. Merged into `slots` it would sit in the profile block forever — "intent: opt_out" long after they came back and asked about home loans — and be arbitrated by a conflict rule built for durable facts. |
 | **A consent refusal is `false`, not silence** | Absent and `false` route differently: `decide()` re-asks on absent and closes on `false`. A model that omits the field on "नहीं, details share मत करो" makes the agent ask a second time — which is the behaviour consent law exists to prevent. Worth 1.2 points of aggregate slot F1 to fix, and the trade is stated rather than hidden. |
 | **The loser strategy stays in the repo** | `EXTRACTION_SYSTEM_FEWSHOT` is still here, still selectable by `TK_EXTRACTION_STRATEGY=fewshot`, and still runnable head-to-head. It wins on intent and loses on slots; showing both is what makes the choice checkable rather than asserted. |
+| **The funnel counts stages *reached*, not stages occupied** | A lead that reached offers and then opted out still reached offers. Counting current stages would show the funnel emptying itself as conversations end, which is the opposite of what a funnel measures. |
+| **A per-turn trace table, not OpenTelemetry** | The plan allows either. The questions here are "what does a lead cost before it reaches offers" rather than latency percentiles, and those want SQL against rows that outlive a retention window. A collector and a backend would also be more moving parts than this project has turns. |
+| **Cost is priced at write time** | Recomputing historic spend against today's rate card silently rewrites what last month cost every time a vendor changes a number. |
+| **Money is scoped to priced traffic** | Most conversations in a dev database ran on the `fake` provider, which makes no call and costs nothing. Averaging real spend across those does not produce a cheaper system, it produces a wrong number — so the page reports both denominators and says which is which. |
+| **Latency excludes our own rate limiter** | A client-side throttle is a decision about spend, not a property of the model. Left in, one turn read 50 seconds, 47 of which was the free-tier pacing this project chose to apply — and "which stage is slow" became unanswerable. |
+| **Observability can never fail a turn** | `trace.record` swallows and logs. A dashboard that can take down the thing it observes is a liability. |
 | **The simulator signs, the browser posts** | The demo exercises the real ingress path including HMAC verification, and "resend" is a byte-identical redelivery rather than a mock of one. |
 
 ---
@@ -235,6 +251,8 @@ threadkeeper/
 | Does the agent invent rates? | **No** — every number in a live `offer_match` reply matched a figure `fetch_offers` returned | manual check, automated in Phase 08 |
 | Is code-gated routing better than prompt-gated? | **Cannot say at this sample size** — two runs (n=5 and n=10 per arm) disagreed on the direction of the headline metric. Reported as inconclusive rather than picking the flattering run | `uv run python -m evals.gating_ab` |
 | What does a conversation cost? | **$0.005** on gemini-3.5-flash-lite → 50 conversations ≈ **$0.26** | `uv run python -m evals.runner` |
+| What does a *closed sale* cost? | **$0.0061** — total spend over sales, so the conversations that went nowhere are counted as the cost of the ones that did | `/console/api/cost` |
+| Where do leads actually drop? | **KYC.** 68% of consented leads clear it; the ones who don't are `pan_not_available`, not disinterest — a different problem with a different fix | `/console/api/funnel` |
 | What is tier 3 worth? | **0 → 100%** objection recall on a returning customer, for **+83 context tokens/turn**, 0 false positives on the control | `uv run python -m evals.memory_ab` |
 | Can it read Hinglish and Devanagari? | **Intent 90.0%, slot F1 89.8%** over 150 hand-labelled code-mixed messages. Per script: latin **91.7%**, Devanagari **89.6%**, mixed **87.2%** slot F1 | `uv run python -m evals.intent_f1` |
 | Which extraction prompt is better? | **Split decision.** Few-shot wins intent (94.0% vs 90.0%); rules wins slots (F1 92.4% vs 87.1%, precision 90.6% vs 84.1%). Rules ships — slots drive the funnel | `uv run python -m evals.intent_f1 --compare` |

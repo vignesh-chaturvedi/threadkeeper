@@ -18,6 +18,7 @@ questions about the business.
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from psycopg.types.json import Json
@@ -27,7 +28,9 @@ from app.graph import escalation, policy, prompts
 from app.graph.build import get_graph
 from app.graph.state import new_state
 from app.ingress import repository
+from app.llm import gemini
 from app.logging import get_logger
+from app.obs import trace
 from app.privacy import audit, consent
 from app.scheduler import queue
 from app.settings import get_settings
@@ -109,6 +112,8 @@ async def run_turn(conversation_id: str, turn_text: str) -> str:
     Cancellable throughout — Phase 02 relies on being able to abandon this
     mid-flight when a newer message arrives.
     """
+    started = time.perf_counter()
+    gemini.begin_turn()
     graph = await get_graph()
     conversation = await repository.get_conversation(conversation_id)
     stage_before = conversation["stage"]
@@ -176,7 +181,14 @@ async def run_turn(conversation_id: str, turn_text: str) -> str:
     if stage_after != stage_before:
         await _record_transition(conversation_id, stage_before, stage_after, reason)
 
-    if result.get("escalate"):
+    if result.get("application"):
+        # The one status that means success. It was in the schema's CHECK
+        # constraint from Phase 00 and nothing set it, because until the funnel
+        # gained a close-on-acceptance path there was nothing to set it from —
+        # which is why the console's first render showed a closed sale as
+        # 'active'.
+        await db.execute("UPDATE conversations SET status = 'won' WHERE id = %s", conversation_id)
+    elif result.get("escalate"):
         await escalation.record(conversation_id, stage_after, reason, result)
         await db.execute(
             "UPDATE conversations SET status = 'escalated' WHERE id = %s", conversation_id
@@ -215,6 +227,32 @@ async def run_turn(conversation_id: str, turn_text: str) -> str:
             "memory_tiers": recollection.tiers,
             "usage": result.get("usage") or {},
         },
+    )
+
+    # --- the trace row ----------------------------------------------------
+    # Written last, so it records what actually happened rather than what was
+    # about to be attempted, and after the latency it reports has been incurred.
+    # `usage` on the state is cumulative for the conversation; the turn's own
+    # cost is the difference across this invocation.
+    await trace.record(
+        conversation_id,
+        turn_index=await trace.next_turn_index(conversation_id),
+        stage_in=stage_before,
+        stage_out=stage_after,
+        reason=reason,
+        intent=result.get("intent"),
+        held_stage=bool(result.get("holds_stage")),
+        usage=trace.turn_usage(prior.get("usage"), result.get("usage")),
+        context_tokens=recollection.tokens_used,
+        memory_tiers=list(recollection.tiers),
+        # Elapsed minus our own throttle. A rate limiter is a decision about
+        # spend, not a property of the model, and leaving it in makes "which
+        # stage is slow" unanswerable — one turn read 50s, of which 47 was the
+        # free-tier pacing this project chose to apply.
+        latency_ms=max(0, int((time.perf_counter() - started) * 1000) - gemini.throttled_ms()),
+        model=(settings.gemini_reply_model if settings.llm_provider == "gemini" else "fake"),
+        prompt_hash=prompts.prompt_hash(),
+        degraded=reason == "model_unavailable",
     )
 
     usage = result.get("usage") or {}

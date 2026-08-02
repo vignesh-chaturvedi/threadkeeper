@@ -86,6 +86,17 @@ EXTRACTION_SCHEMA: dict[str, Any] = {
             "type": "STRING",
             "description": "Short label if they pushed back: 'interest_rate', 'fees', 'timing'.",
         },
+        # The one slot that completes the funnel. Only meaningful once offers
+        # have been quoted, which the policy checks rather than trusting here —
+        # an extractor cannot know whether a figure was ever shown.
+        "offer_accepted": {
+            "type": "BOOLEAN",
+            "description": (
+                "True only if the customer accepts an offer they have just been "
+                "shown — 'pehla wala theek hai', 'apply kar dijiye', 'yes go ahead'. "
+                "Not for general agreement."
+            ),
+        },
         "interrupt": {
             "type": "STRING",
             "enum": ["opt_out", "objection", "off_topic", "escalate"],
@@ -298,6 +309,7 @@ def render_reply_prompt(
     returning: bool = False,
     offers: list[dict[str, Any]] | None = None,
     offers_error: str | None = None,
+    application: dict[str, Any] | None = None,
 ) -> str:
     """Tier 2 and tier 3 are rendered text, not JSON.
 
@@ -326,6 +338,17 @@ def render_reply_prompt(
             f"\nTHE LENDER CALL FAILED ({offers_error}). You have no figures at all. "
             "Tell them plainly that you could not reach the lenders just now and "
             "will retry — do not guess at what an offer might look like."
+        )
+
+    if application:
+        # The application id is the one number the customer will quote back when
+        # they follow up, so it has to be in the reply verbatim rather than
+        # described. It comes from the tool, which is what keeps it a fact.
+        parts.append(
+            f"\nTHE APPLICATION IS OPEN: reference {application.get('application_id')}"
+            f" with {application.get('lender')}. Confirm it warmly and briefly, give "
+            "them that reference, and say a human will be in touch about next steps. "
+            "Do not promise approval — an open application is not a decision."
         )
 
     if recall_block:

@@ -103,6 +103,17 @@ def decide(state: dict[str, Any]) -> Decision:
         # application, but this is not a dead conversation either.
         return Decision("kyc_collect", "pan_not_available")
 
+    # The funnel had no way to finish successfully until the Phase 10 funnel
+    # chart made it obvious: `close` was reachable only by opt-out or consent
+    # refusal, so every close in the system was a failure and "cost per closed
+    # sale" had no numerator. Accepting an offer is what completes a lending
+    # funnel, and it needs both halves — an acceptance *and* an offer that was
+    # actually shown. "haan" before any figures have been quoted is agreement to
+    # nothing, and turning it into an application is precisely the overreach the
+    # rest of this policy exists to prevent.
+    if slots.get("offer_accepted") and state.get("last_offer"):
+        return Decision("close", "offer_accepted")
+
     return Decision("offer_match", "ready_for_offers")
 
 

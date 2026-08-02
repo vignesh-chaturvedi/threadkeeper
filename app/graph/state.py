@@ -45,6 +45,11 @@ class FunnelState(TypedDict, total=False):
     # The top offer most recently shown. Feeds the escalation packet, and lets
     # create_application verify an offer id was actually quoted.
     last_offer: dict[str, Any] | None
+    # Set only by `close` when an application is actually opened. The runner
+    # reads it to mark the conversation won — and it has to be declared here,
+    # because LangGraph drops any key a node returns that the schema does not
+    # name. It did exactly that, silently, and four closed sales stayed 'active'.
+    application: dict[str, Any] | None
 
     # Set by extraction, consumed by the policy, cleared each turn.
     interrupt: str | None

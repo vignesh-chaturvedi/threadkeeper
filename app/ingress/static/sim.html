@@ -59,8 +59,11 @@
           border:3px solid var(--panel)}
 
   .bub{max-width:80%;padding:10px 14px;border-radius:18px;font-size:14px;font-weight:600;
-       white-space:pre-wrap;word-break:break-word;position:relative;
-       animation:pop .18s cubic-bezier(.2,1.2,.4,1)}
+       white-space:pre-wrap;word-break:break-word;position:relative}
+  /* Only bubbles that are genuinely new animate. Putting this on .bub meant
+     every poll-driven re-render replayed it on every message at once, which
+     read as the whole transcript blinking. */
+  .bub.new{animation:pop .18s cubic-bezier(.2,1.2,.4,1)}
   @keyframes pop{from{transform:scale(.94) translateY(4px);opacity:0}to{transform:none;opacity:1}}
   .bub.out{align-self:flex-end;background:var(--blue);color:#fff;
            border-bottom-right-radius:6px;box-shadow:0 2px 0 var(--blue-d)}
@@ -285,7 +288,7 @@
   "use strict";
 
   var PHONE = "919876543210";
-  var lastPayload = null, lastSignature = null;
+  var lastPayload = null, lastSignature = null, lastSlotsHtml = null;
 
   var $ = function(id){ return document.getElementById(id); };
   var thread = $("thread"), logEl = $("log"), jumpBtn = $("jump");
@@ -389,41 +392,106 @@
     var slots = d.slots || {};
     var keys = Object.keys(slots);
     $("slots-n").textContent = keys.length;
-    $("slots-body").innerHTML = keys.length
+    var slotsHtml = keys.length
       ? keys.map(function(k){
           var v = slots[k];
           if (v && typeof v === "object") v = (v.granted === true ? "granted" : JSON.stringify(v));
           return '<b style="color:var(--blue-d)">'+k+'</b>=' + String(v);
         }).join(" &nbsp;·&nbsp; ")
       : "nothing extracted yet";
+    // Same reasoning as the transcript: writing identical innerHTML on a timer
+    // still tears down and rebuilds the nodes.
+    if(slotsHtml !== lastSlotsHtml){
+      $("slots-body").innerHTML = slotsHtml;
+      lastSlotsHtml = slotsHtml;
+    }
 
-    var follow = atBottom(thread);
+    renderThread(d);
+  }
+
+  /* ---- transcript rendering -----------------------------------------
+     This runs on a 1.2s poll, so it must be a no-op when nothing has
+     changed. Rebuilding unconditionally re-ran every bubble's entrance
+     animation (the transcript appeared to blink), threw away any text the
+     reader had selected, and did a full layout pass once a second for no
+     reason. Compare per-message signatures instead: usually nothing has
+     changed, and when something has it is almost always an append. */
+  var rendered = [];   // signature of each bubble currently in the DOM
+
+  function sigOf(m){ return m.at + "|" + m.direction + "|" + m.body.length; }
+
+  function bubbleFor(m, isNew){
+    var b = document.createElement("div");
+    // 'in' is inbound to the server = sent BY the customer = right-aligned here.
+    b.className = "bub " + (m.direction === "in" ? "out" : "in") + (isNew ? " new" : "");
+    b.textContent = m.body;
+    var t = document.createElement("span");
+    t.className = "t";
+    t.textContent = new Date(m.at).toTimeString().slice(0,5);
+    b.appendChild(t);
+    if(isNew){
+      // Drop the class once it has played. Left on, every bubble keeps a live
+      // `animation` property, so any future re-insertion replays the entrance
+      // for the whole transcript — the blink, waiting to happen again.
+      setTimeout(function(){ b.classList.remove("new"); }, 400);
+    }
+    return b;
+  }
+
+  function renderThread(d){
     var typingEl = $("typing");
-    thread.innerHTML = "";
-    if(!d.messages.length){
-      var e = document.createElement("div");
-      e.className = "empty";
-      e.innerHTML = '<span class="big">👋</span>';
-      e.appendChild(document.createTextNode(
-        "No messages yet. Try “personal loan chahiye, 5 lakh”."));
-      thread.appendChild(e);
+    var sigs = d.messages.map(sigOf);
+
+    // Is the new transcript the old one plus zero or more messages?
+    var isAppend = sigs.length >= rendered.length;
+    if(isAppend){
+      for(var i = 0; i < rendered.length; i++){
+        if(rendered[i] !== sigs[i]){ isAppend = false; break; }
+      }
+    }
+
+    if(isAppend && sigs.length === rendered.length){
+      // Nothing changed. Touch only the typing indicator and leave the DOM —
+      // and the reader's scroll position and text selection — alone.
       typingEl.className = "typing" + (d.typing ? " on" : "");
-      thread.appendChild(typingEl);
       return;
     }
-    d.messages.forEach(function(m){
-      var b = document.createElement("div");
-      // 'in' is inbound to the server = sent BY the customer = right-aligned here.
-      b.className = "bub " + (m.direction === "in" ? "out" : "in");
-      b.textContent = m.body;
-      var t = document.createElement("span");
-      t.className = "t";
-      t.textContent = new Date(m.at).toTimeString().slice(0,5);
-      b.appendChild(t);
-      thread.appendChild(b);
-    });
+
+    var follow = atBottom(thread);
+
+    if(!isAppend){
+      // Diverged (a reset, most likely). Rebuild without animating.
+      thread.innerHTML = "";
+      rendered = [];
+      if(!d.messages.length){
+        var e = document.createElement("div");
+        e.className = "empty";
+        e.innerHTML = '<span class="big">👋</span>';
+        e.appendChild(document.createTextNode(
+          "No messages yet. Try “personal loan chahiye, 5 lakh”."));
+        thread.appendChild(e);
+        thread.appendChild(typingEl);
+        typingEl.className = "typing" + (d.typing ? " on" : "");
+        return;
+      }
+      d.messages.forEach(function(m){ thread.appendChild(bubbleFor(m, false)); });
+      rendered = sigs;
+    } else {
+      // Pure append: only the new arrivals get built, and only they pop.
+      // Except on the very first paint, where "everything is new" would
+      // animate the whole transcript in at once — which looks like the bug
+      // this is fixing.
+      var animate = rendered.length > 0;
+      var empty = thread.querySelector(".empty");
+      if(empty) empty.remove();
+      for(var j = rendered.length; j < d.messages.length; j++){
+        thread.appendChild(bubbleFor(d.messages[j], animate));
+      }
+      rendered = sigs;
+    }
+
     typingEl.className = "typing" + (d.typing ? " on" : "");
-    thread.appendChild(typingEl);
+    thread.appendChild(typingEl);   // keep the indicator last
     stickToBottom(thread, follow);
     jumpBtn.className = "jump" + (atBottom(thread) ? "" : " on");
   }

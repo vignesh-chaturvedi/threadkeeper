@@ -4,98 +4,181 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Threadkeeper · WhatsApp simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root{
-    --ink:#0c0e13; --ink-2:#10131a; --line:#1e2431; --line-2:#2a3243;
-    --text:#e7e5df; --text-2:#a6acba; --dim:#6d7484;
-    --accent:#9db4ff; --accent-deep:#6d8bff; --warn:#e0a24a; --ok:#7fb98f;
-    --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,monospace;
-    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    /* Bright, friendly, high-contrast. Dark text on light paper so the log
+       stays readable on a projector and in a screen recording. */
+    --paper:#ffffff; --bg:#f2f5f7; --panel:#f7f9fa;
+    --ink:#3c3c3c; --ink-2:#5a5a5a; --dim:#9aa0a6;
+    --line:#e5e7eb; --line-2:#d4d8dd;
+
+    --green:#58cc02; --green-d:#46a302;
+    --blue:#1cb0f6;  --blue-d:#1899d6;
+    --gold:#ffc800;  --gold-d:#e5aa00;
+    --red:#ff4b4b;   --red-d:#ea2b2b;
+    --purple:#ce82ff;
+
+    --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:"Nunito",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
   }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--ink);color:var(--text);font-family:var(--sans);
-       font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
-  .shell{display:grid;grid-template-columns:minmax(0,380px) minmax(0,1fr);
-         gap:0;height:100vh;max-width:1180px;margin:0 auto}
 
-  /* ---------- phone ---------- */
-  .phone{display:flex;flex-direction:column;border-right:1px solid var(--line);min-width:0}
-  .phone-head{padding:14px 18px;border-bottom:1px solid var(--line);background:var(--ink-2);
-              display:flex;align-items:center;gap:11px}
-  .avatar{width:34px;height:34px;border-radius:50%;background:var(--accent-deep);
-          display:grid;place-items:center;font-weight:600;color:var(--ink);flex-shrink:0}
-  .who{font-weight:500}
-  .who small{display:block;font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;
-             text-transform:uppercase;color:var(--dim);font-weight:400}
+  /* The scroll contract, stated once: the page never scrolls. Every pane that
+     can overflow does its own scrolling. Without the min-height:0 rules below,
+     a grid or flex child refuses to shrink under its content and the whole
+     document grows instead — which is the bug this replaces. */
+  html,body{height:100%;overflow:hidden}
 
-  .thread{flex:1;overflow-y:auto;padding:18px;display:flex;flex-direction:column;gap:8px}
-  .bub{max-width:78%;padding:8px 12px;border-radius:12px;font-size:13.5px;
-       white-space:pre-wrap;word-break:break-word;position:relative}
-  .bub.out{align-self:flex-end;background:#2b3b6b;border-bottom-right-radius:3px}
-  .bub.in{align-self:flex-start;background:var(--ink-2);border:1px solid var(--line);
-          border-bottom-left-radius:3px}
-  .bub .t{display:block;font-family:var(--mono);font-size:9px;color:var(--dim);margin-top:4px}
-  .empty{color:var(--dim);font-size:13px;text-align:center;margin:auto;max-width:26ch}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+       font-size:14.5px;line-height:1.55;-webkit-font-smoothing:antialiased}
 
-  .typing{align-self:flex-start;background:var(--ink-2);border:1px solid var(--line);
-    border-radius:12px;border-bottom-left-radius:3px;padding:10px 14px;display:none}
+  .shell{display:grid;grid-template-columns:minmax(0,400px) minmax(0,1fr);
+         grid-template-rows:minmax(0,1fr);            /* was implicit auto */
+         height:100dvh;max-width:1280px;margin:0 auto;background:var(--paper);
+         box-shadow:0 0 0 1px var(--line)}
+
+  /* ============================ phone ============================ */
+  .phone{display:flex;flex-direction:column;min-width:0;min-height:0;
+         border-right:2px solid var(--line);background:var(--panel)}
+
+  .phone-head{padding:14px 18px;background:var(--green);
+              display:flex;align-items:center;gap:12px;flex-shrink:0}
+  .mascot{width:44px;height:44px;flex-shrink:0;filter:drop-shadow(0 2px 0 rgba(0,0,0,.14))}
+  .who{font-weight:800;color:#fff;font-size:16px;letter-spacing:.2px;line-height:1.2}
+  .who small{display:block;font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;
+             text-transform:uppercase;color:rgba(255,255,255,.82);font-weight:500;margin-top:2px}
+
+  .thread{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;
+          padding:18px;display:flex;flex-direction:column;gap:10px;
+          background:var(--panel)}
+  .thread::-webkit-scrollbar{width:10px}
+  .thread::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:99px;
+          border:3px solid var(--panel)}
+
+  .bub{max-width:80%;padding:10px 14px;border-radius:18px;font-size:14px;font-weight:600;
+       white-space:pre-wrap;word-break:break-word;position:relative;
+       animation:pop .18s cubic-bezier(.2,1.2,.4,1)}
+  @keyframes pop{from{transform:scale(.94) translateY(4px);opacity:0}to{transform:none;opacity:1}}
+  .bub.out{align-self:flex-end;background:var(--blue);color:#fff;
+           border-bottom-right-radius:6px;box-shadow:0 2px 0 var(--blue-d)}
+  .bub.in{align-self:flex-start;background:var(--paper);color:var(--ink);
+          border:2px solid var(--line);border-bottom-left-radius:6px;box-shadow:0 2px 0 var(--line)}
+  .bub .t{display:block;font-family:var(--mono);font-size:9.5px;margin-top:5px;font-weight:400;
+          opacity:.7}
+  .bub.out .t{color:#eaf7ff} .bub.in .t{color:var(--dim)}
+
+  .empty{color:var(--ink-2);font-size:14px;text-align:center;margin:auto;max-width:30ch;
+         font-weight:600;line-height:1.6}
+  .empty .big{display:block;font-size:34px;margin-bottom:8px}
+
+  .typing{align-self:flex-start;background:var(--paper);border:2px solid var(--line);
+    border-radius:18px;border-bottom-left-radius:6px;padding:12px 16px;display:none;
+    box-shadow:0 2px 0 var(--line)}
   .typing.on{display:block}
-  .typing i{display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--dim);
-    margin-right:3px;animation:bob 1.2s infinite}
+  .typing i{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--dim);
+    margin-right:4px;animation:bob 1.2s infinite}
   .typing i:nth-child(2){animation-delay:.18s} .typing i:nth-child(3){animation-delay:.36s}
-  @keyframes bob{0%,60%,100%{opacity:.28;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
+  @keyframes bob{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-5px)}}
 
-  .buf{background:var(--ink-2);border-bottom:1px solid var(--line);padding:10px 20px}
-  .buf-top{display:flex;justify-content:space-between;align-items:baseline;
-    font-family:var(--mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
-  .buf-top b{color:var(--accent);font-weight:400}
-  .buf-bar{height:3px;background:var(--line-2);margin-top:7px;overflow:hidden}
-  .buf-bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .18s linear}
-  .buf.hot .buf-bar i{background:var(--warn)}
-  .buf-q{font-family:var(--mono);font-size:10px;color:var(--text-2);margin-top:7px;
-    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:14px}
+  /* jump-to-latest, shown only when the reader has scrolled away */
+  .jump{position:absolute;left:50%;transform:translateX(-50%) translateY(8px);bottom:12px;
+        background:var(--paper);color:var(--ink);border:2px solid var(--line-2);
+        border-bottom-width:3px;border-radius:99px;padding:6px 14px;font-family:var(--sans);
+        font-weight:800;font-size:12px;cursor:pointer;box-shadow:0 3px 10px rgba(0,0,0,.1);
+        opacity:0;pointer-events:none;transition:.16s}
+  .jump.on{opacity:1;pointer-events:auto;transform:translateX(-50%) translateY(0)}
+  .thread-wrap{position:relative;flex:1;min-height:0;display:flex;flex-direction:column}
 
-  .composer{border-top:1px solid var(--line);padding:12px;background:var(--ink-2)}
-  .row{display:flex;gap:8px}
-  input,button,select{font-family:inherit;font-size:13px}
-  input[type=text]{flex:1;min-width:0;background:var(--ink);color:var(--text);
-    border:1px solid var(--line-2);border-radius:18px;padding:9px 14px;outline:none}
-  input[type=text]:focus{border-color:var(--accent-deep)}
-  .send{background:var(--accent-deep);color:var(--ink);border:none;border-radius:50%;
-        width:36px;height:36px;cursor:pointer;font-size:15px;flex-shrink:0}
-  .send:hover{background:var(--accent)}
-  .tools{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
-  .tools button{background:transparent;color:var(--text-2);border:1px solid var(--line-2);
-    padding:4px 9px;cursor:pointer;font-family:var(--mono);font-size:9.5px;
-    letter-spacing:.08em;text-transform:uppercase;transition:.15s}
-  .tools button:hover{border-color:var(--accent-deep);color:var(--accent)}
-  .tools button.warn:hover{border-color:var(--warn);color:var(--warn)}
+  /* ---- composer ---- */
+  .composer{border-top:2px solid var(--line);padding:14px;background:var(--paper);flex-shrink:0}
+  .row{display:flex;gap:10px}
+  input,button{font-family:inherit}
+  input[type=text]{flex:1;min-width:0;background:var(--panel);color:var(--ink);
+    border:2px solid var(--line-2);border-radius:16px;padding:11px 16px;outline:none;
+    font-size:14.5px;font-weight:600;transition:.14s}
+  input[type=text]::placeholder{color:var(--dim);font-weight:600}
+  input[type=text]:focus{border-color:var(--blue);background:var(--paper)}
+  .send{background:var(--green);color:#fff;border:none;border-bottom:4px solid var(--green-d);
+        border-radius:16px;width:52px;flex-shrink:0;cursor:pointer;font-size:19px;font-weight:800;
+        transition:.08s}
+  .send:hover{filter:brightness(1.06)}
+  .send:active{transform:translateY(2px);border-bottom-width:2px}
 
-  /* ---------- inspector ---------- */
-  .side{display:flex;flex-direction:column;min-width:0;background:var(--ink)}
-  .side-head{padding:14px 20px;border-bottom:1px solid var(--line);
-    display:flex;justify-content:space-between;align-items:baseline;gap:12px}
-  .side-head h1{font-size:14px;margin:0;font-weight:500}
-  .side-head .sub{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;
-    text-transform:uppercase;color:var(--dim)}
+  .tools{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}
+  .tools button{background:var(--paper);color:var(--ink-2);border:2px solid var(--line-2);
+    border-bottom-width:4px;border-radius:12px;padding:7px 11px;cursor:pointer;
+    font-family:var(--sans);font-size:11px;font-weight:800;letter-spacing:.04em;
+    text-transform:uppercase;transition:.08s}
+  .tools button:hover{border-color:var(--blue);color:var(--blue)}
+  .tools button:active{transform:translateY(2px);border-bottom-width:2px}
+  .tools button.go{border-color:var(--green);color:var(--green-d)}
+  .tools button.time{border-color:var(--purple);color:#a855f7}
+  .tools button.warn{border-color:var(--gold);color:var(--gold-d)}
+  .tools button.bad{border-color:var(--red);color:var(--red-d)}
 
-  .meta{display:flex;flex-wrap:wrap;gap:1px;background:var(--line);border-bottom:1px solid var(--line)}
-  .meta div{background:var(--ink-2);padding:9px 14px;flex:1 1 120px;min-width:0}
-  .meta .k{font-family:var(--mono);font-size:8.5px;letter-spacing:.14em;
-    text-transform:uppercase;color:var(--dim)}
-  .meta .v{font-family:var(--mono);font-size:11px;color:var(--text);margin-top:3px;
-    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* ========================== inspector ========================== */
+  .side{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--paper)}
 
-  .log{flex:1;overflow-y:auto;padding:14px 20px;font-family:var(--mono);font-size:11px;
-       line-height:1.75;color:var(--text-2)}
-  .log .ln{padding:5px 0;border-bottom:1px solid var(--line);display:flex;gap:10px}
+  .side-head{padding:15px 20px;border-bottom:2px solid var(--line);flex-shrink:0;
+    display:flex;justify-content:space-between;align-items:center;gap:12px}
+  .side-head h1{font-size:17px;margin:0;font-weight:800;letter-spacing:-.2px}
+  .side-head .sub{font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--dim);font-weight:500}
+
+  .meta{display:flex;flex-wrap:wrap;gap:8px;padding:14px 20px;flex-shrink:0;
+        border-bottom:2px solid var(--line);background:var(--panel)}
+  .meta div{background:var(--paper);padding:9px 13px;flex:1 1 130px;min-width:0;
+            border:2px solid var(--line);border-radius:12px}
+  .meta .k{font-family:var(--mono);font-size:8.5px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--dim);font-weight:500}
+  .meta .v{font-family:var(--mono);font-size:11.5px;color:var(--ink);margin-top:3px;
+    font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  .buf{background:var(--paper);border-bottom:2px solid var(--line);padding:12px 20px;flex-shrink:0}
+  .buf-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+    font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--dim);font-weight:500}
+  .buf-top b{color:var(--blue);font-weight:700}
+  .buf-bar{height:8px;background:var(--line);margin-top:8px;border-radius:99px;overflow:hidden}
+  .buf-bar i{display:block;height:100%;width:0;background:var(--green);border-radius:99px;
+    transition:width .18s linear}
+  .buf.hot .buf-bar i{background:var(--gold)}
+  .buf-q{font-family:var(--mono);font-size:11px;color:var(--ink-2);margin-top:8px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:15px;font-weight:500}
+
+  .log{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;
+       padding:12px 20px;font-family:var(--mono);font-size:11.5px;line-height:1.7;
+       color:var(--ink-2);background:var(--panel)}
+  .log::-webkit-scrollbar{width:10px}
+  .log::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:99px;
+       border:3px solid var(--panel)}
+  .log .ln{padding:6px 0;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:baseline}
   .log .ts{color:var(--dim);flex-shrink:0}
-  .log .st{flex-shrink:0;width:52px}
-  .st.ok{color:var(--ok)} .st.dup{color:var(--warn)} .st.err{color:#e07a7a}
+  .log .st{flex-shrink:0;min-width:46px;text-align:center;border-radius:6px;padding:1px 6px;
+    font-weight:500;font-size:10px;background:var(--line);color:var(--ink-2)}
+  .st.ok{background:#e3f7d3;color:#3d8b00}
+  .st.dup{background:#fff2cc;color:#a67c00}
+  .st.err{background:#ffe0e0;color:#c81e1e}
   .log .msg{min-width:0;word-break:break-word}
-  .log .hint{color:var(--dim)}
+  .log .hint{color:var(--ink-2);font-weight:500}
+  .log .hint b{color:var(--green-d)}
 
-  @media (max-width:860px){ .shell{grid-template-columns:1fr;height:auto} .phone{height:70vh} }
+  /* Narrow: the page itself may scroll, because stacking two locked panes on a
+     phone leaves neither usable. But each overflow area still needs a height
+     that does not come from its content, or `flex:1` resolves to "as tall as
+     the log happens to be" and the document stretches again — which is the
+     original bug wearing a different layout. */
+  @media (max-width:880px){
+    html,body{overflow:auto;height:auto}
+    .shell{grid-template-columns:1fr;grid-template-rows:auto auto;
+           height:auto;box-shadow:none}
+    .phone{border-right:none;border-bottom:2px solid var(--line)}
+    .thread-wrap{height:56dvh;flex:none}
+    .log{max-height:60dvh}
+  }
 </style>
 </head>
 <body>
@@ -104,13 +187,29 @@
   <!-- ================= phone ================= -->
   <div class="phone">
     <div class="phone-head">
-      <div class="avatar">T</div>
-      <div class="who">Threadkeeper<small id="presence">mock lender · not a real BSP</small></div>
+      <svg class="mascot" viewBox="0 0 48 48" aria-hidden="true">
+        <path d="M11 11 L8 4 L17 8 Z" fill="#46a302"/>
+        <path d="M37 11 L40 4 L31 8 Z" fill="#46a302"/>
+        <rect x="5" y="8" width="38" height="34" rx="14" fill="#7ee62b"/>
+        <rect x="5" y="8" width="38" height="34" rx="14" fill="none" stroke="#46a302" stroke-width="2"/>
+        <circle cx="18" cy="22" r="6" fill="#fff"/>
+        <circle cx="30" cy="22" r="6" fill="#fff"/>
+        <circle cx="19" cy="23" r="3" fill="#3c3c3c"/>
+        <circle cx="31" cy="23" r="3" fill="#3c3c3c"/>
+        <circle cx="17.8" cy="21.6" r="1" fill="#fff"/>
+        <circle cx="29.8" cy="21.6" r="1" fill="#fff"/>
+        <path d="M19 32 q5 4.5 10 0" stroke="#46a302" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+      </svg>
+      <div class="who">Threadkeeper<small>mock lender · not a real BSP</small></div>
     </div>
 
-    <div class="thread" id="thread">
-      <div class="empty" id="empty">No messages yet. Say something like “hi” or “need 5 lakh loan”.</div>
-      <div class="typing" id="typing"><i></i><i></i><i></i></div>
+    <div class="thread-wrap">
+      <div class="thread" id="thread">
+        <div class="empty" id="empty"><span class="big">👋</span>
+          No messages yet. Try “personal loan chahiye, 5 lakh”.</div>
+        <div class="typing" id="typing"><i></i><i></i><i></i></div>
+      </div>
+      <button class="jump" id="jump">↓ Jump to latest</button>
     </div>
 
     <div class="composer">
@@ -119,7 +218,7 @@
         <button class="send" id="send" title="Send">↑</button>
       </div>
       <div class="tools">
-        <button id="burst" title="Four messages 300ms apart — Phase 02 must collapse these into one turn">
+        <button class="go" id="burst" title="Four messages 300ms apart — Phase 02 must collapse these into one turn">
           burst ×4
         </button>
         <button id="resend" title="Re-post the exact previous payload — the provider redelivering">
@@ -128,13 +227,13 @@
         <button id="resend5" title="Post the same payload five times — the Phase 01 done-when">
           redeliver ×5
         </button>
-        <button id="tamper" title="Post with a corrupted HMAC — must be rejected 401">
+        <button class="bad" id="tamper" title="Post with a corrupted HMAC — must be rejected 401">
           bad signature
         </button>
-        <button id="skip" title="Jump the demo clock forward 3 hours — the follow-up becomes due">
+        <button class="time" id="skip" title="Jump the demo clock forward 3 hours — the follow-up becomes due">
           skip 3h
         </button>
-        <button id="skip2d" title="Jump forward 2 days — past the 24h window, so a template is used">
+        <button class="time" id="skip2d" title="Jump forward 2 days — past the 24h window, so a template is used">
           skip 2d
         </button>
         <button class="warn" id="reset" title="Delete this conversation and start over">
@@ -160,7 +259,7 @@
       <div><div class="k">clock</div><div class="v" id="m-clock">real time</div></div>
     </div>
 
-    <div class="buf" id="slots-panel" style="border-bottom:1px solid var(--line)">
+    <div class="buf" id="slots-panel">
       <div class="buf-top"><span>Known slots</span><span id="slots-n">0</span></div>
       <div class="buf-q" id="slots-body" style="white-space:normal">nothing extracted yet</div>
     </div>
@@ -175,8 +274,8 @@
     </div>
 
     <div class="log" id="log">
-      <div class="ln"><span class="hint">Every send below is a real HTTP POST from this browser to
-      /webhook/whatsapp, signed with the app secret. Nothing is faked in the middle.</span></div>
+      <div class="ln"><span class="hint">Every send below is a <b>real HTTP POST</b> from this browser
+      to /webhook/whatsapp, signed with the app secret. Nothing is faked in the middle.</span></div>
     </div>
   </div>
 </div>
@@ -189,14 +288,33 @@
   var lastPayload = null, lastSignature = null;
 
   var $ = function(id){ return document.getElementById(id); };
-  var thread = $("thread"), logEl = $("log");
+  var thread = $("thread"), logEl = $("log"), jumpBtn = $("jump");
+
+  /* ---- scrolling ----------------------------------------------------
+     The transcript re-renders on a timer. Snapping to the bottom every
+     time makes history unreadable: scroll up and you are yanked back a
+     second later. So only follow the tail when the reader is already at
+     it, and offer a button when they are not. */
+  function atBottom(el, slack){
+    return el.scrollHeight - el.scrollTop - el.clientHeight <= (slack || 40);
+  }
+  function stickToBottom(el, wasAtBottom){
+    if(wasAtBottom) el.scrollTop = el.scrollHeight;
+  }
+  thread.addEventListener("scroll", function(){
+    jumpBtn.className = "jump" + (atBottom(thread) ? "" : " on");
+  });
+  jumpBtn.addEventListener("click", function(){
+    thread.scrollTop = thread.scrollHeight;
+    jumpBtn.className = "jump";
+  });
 
   function now(){
-    var d = new Date();
-    return d.toTimeString().slice(0,8);
+    return new Date().toTimeString().slice(0,8);
   }
 
   function logLine(status, cls, msg){
+    var follow = atBottom(logEl);
     var ln = document.createElement("div");
     ln.className = "ln";
     ln.innerHTML = '<span class="ts">'+now()+'</span>'+
@@ -204,7 +322,7 @@
                    '<span class="msg"></span>';
     ln.querySelector(".msg").textContent = msg;
     logEl.appendChild(ln);
-    logEl.scrollTop = logEl.scrollHeight;
+    stickToBottom(logEl, follow);
   }
 
   /* ---- build a signed payload, then post it ourselves ---- */
@@ -246,6 +364,9 @@
     var built = await sign(text);
     lastPayload = built.payload; lastSignature = built.signature;
     await post(built.payload, built.signature, "send “"+text.slice(0,24)+"”");
+    // The customer just spoke: follow the tail even if they had scrolled up.
+    thread.scrollTop = thread.scrollHeight;
+    jumpBtn.className = "jump";
     setTimeout(refresh, 260);
   }
 
@@ -272,16 +393,19 @@
       ? keys.map(function(k){
           var v = slots[k];
           if (v && typeof v === "object") v = (v.granted === true ? "granted" : JSON.stringify(v));
-          return '<span style="color:var(--accent)">'+k+'</span>=' + String(v);
+          return '<b style="color:var(--blue-d)">'+k+'</b>=' + String(v);
         }).join(" &nbsp;·&nbsp; ")
       : "nothing extracted yet";
 
+    var follow = atBottom(thread);
     var typingEl = $("typing");
     thread.innerHTML = "";
     if(!d.messages.length){
       var e = document.createElement("div");
       e.className = "empty";
-      e.textContent = "No messages yet. Say something like “hi” or “need 5 lakh loan”.";
+      e.innerHTML = '<span class="big">👋</span>';
+      e.appendChild(document.createTextNode(
+        "No messages yet. Try “personal loan chahiye, 5 lakh”."));
       thread.appendChild(e);
       typingEl.className = "typing" + (d.typing ? " on" : "");
       thread.appendChild(typingEl);
@@ -300,7 +424,8 @@
     });
     typingEl.className = "typing" + (d.typing ? " on" : "");
     thread.appendChild(typingEl);
-    thread.scrollTop = thread.scrollHeight;
+    stickToBottom(thread, follow);
+    jumpBtn.className = "jump" + (atBottom(thread) ? "" : " on");
   }
 
   /* ---- controls ---- */
@@ -312,7 +437,7 @@
   });
 
   $("burst").addEventListener("click", async function(){
-    var parts = ["hi", "need loan", "5 lakh", "urgent bro"];
+    var parts = ["hi", "personal loan chahiye", "5 lakh", "urgent bro"];
     logLine("→", "", "burst of 4, 300ms apart — expect ONE reply");
     for(var i=0;i<parts.length;i++){
       await send(parts[i]);
@@ -348,9 +473,13 @@
 
   async function skipClock(hours, label){
     var r = await fetch("/sim/api/clock/skip?hours="+hours, {method:"POST"});
+    if(r.status === 403){
+      logLine("403", "err", "clock skipping is disabled here — needs TK_DEMO_SANDBOX");
+      return;
+    }
     var d = await r.json();
     logLine("clock", "dup", label + " → offset now +" + d.offset_hours + "h; " +
-            "the worker polls every 2s, watch for the nudge");
+            "watch for the follow-up to fire on the worker's next poll");
     setTimeout(refresh, 2500);
   }
   $("skip").addEventListener("click", function(){ skipClock(3, "skipped 3 hours"); });

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+import re
 from decimal import Decimal
 
 import pytest
@@ -229,11 +230,27 @@ class TestConsole:
         assert "Funnel" in resp.text
 
     async def test_the_chart_and_the_table_come_from_one_query(self, live_app) -> None:  # type: ignore[no-untyped-def]
-        """The whole reason the SVG is generated server-side rather than fetched."""
+        """The whole reason the chart is generated server-side rather than fetched.
+
+        Asserted against the figures the chart renders, parsed back out of it,
+        rather than against a formatted string. The first version looked for the
+        literal "27 · 54%" and broke the moment the count and the percentage
+        became separate elements — it was pinning the markup, not the invariant,
+        and the invariant is that these numbers cannot disagree with the API.
+        """
         page = (await live_app.get("/console")).text
         rows = (await live_app.get("/console/api/funnel")).json()["funnel"]
-        for row in rows:
-            assert f"{row['reached']} · {row['pct_of_total']:.0f}%" in page
+
+        rendered = re.findall(
+            r'<div class="fl">([a-z_]+)</div>.*?<b>(\d+)</b><span>(\d+)%</span>',
+            page,
+            flags=re.S,
+        )
+        assert rendered, "the funnel chart rendered no rows"
+        assert [stage for stage, _, _ in rendered] == [r["stage"] for r in rows]
+        for (_, reached, pct), row in zip(rendered, rows, strict=True):
+            assert int(reached) == row["reached"]
+            assert int(pct) == round(row["pct_of_total"])
 
     async def test_the_json_endpoints_answer(self, live_app) -> None:  # type: ignore[no-untyped-def]
         cost_payload = (await live_app.get("/console/api/cost")).json()

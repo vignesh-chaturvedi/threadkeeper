@@ -25,7 +25,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse
 
-from app.obs import queries
+from app.obs import brand, queries
 
 router = APIRouter(prefix="/console", tags=["console"])
 
@@ -33,11 +33,11 @@ router = APIRouter(prefix="/console", tags=["console"])
 # funnel narrowing is normal, not a failure, and colouring the last stage red
 # would read as an alarm on every screenshot.
 _STAGE_TINT = {
-    "qualify": "#6d8bff",
-    "consent": "#7d84f5",
-    "kyc_collect": "#8d7ee2",
-    "offer_match": "#a878cf",
-    "close": "#c072b8",
+    "qualify": "#1cb0f6",
+    "consent": "#4a9df4",
+    "kyc_collect": "#7b8cf2",
+    "offer_match": "#a87ae8",
+    "close": "#ce82ff",
 }
 
 
@@ -100,45 +100,53 @@ async def _header_or_404(conversation_id: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # The funnel chart, as SVG
 # ---------------------------------------------------------------------------
-def _funnel_svg(rows: list[dict[str, Any]]) -> str:
+def _funnel_chart(rows: list[dict[str, Any]]) -> str:
     """A horizontal bar per stage, widths proportional to conversations reached.
 
     Proportional to the *total*, not to the widest bar. Normalising to the
     largest stage would make every funnel look identical no matter how steeply
     it drops, which is the one thing this chart exists to show.
+
+    Laid out in CSS rather than SVG, which is a change from the first version.
+    An SVG with a fixed viewBox scales its own text with the drawing, so the
+    chart's type was larger than the page's on a wide window and smaller on a
+    narrow one — a chart that would not share the typography of the document it
+    sits in. It also had to hand-place the drop-off label in the 8px gap between
+    bars, where a two-digit count overlapped the bar above. Both problems are
+    layout problems, so they belong to the layout engine.
     """
     if not rows:
         return '<p class="empty">No conversations yet. Run the seeder.</p>'
 
     total = max(rows[0]["total"], 1)
-    row_h, gap, label_w, bar_w = 34, 8, 104, 420
-    height = len(rows) * (row_h + gap)
-    parts = [
-        f'<svg viewBox="0 0 {label_w + bar_w + 150} {height}" role="img" '
-        f'aria-label="Funnel drop-off by stage" class="funnel">'
-    ]
+    parts = ['<div class="funnel">']
 
-    for i, row in enumerate(rows):
-        y = i * (row_h + gap)
-        width = max(2, round(row["reached"] / total * bar_w))
-        tint = _STAGE_TINT.get(row["stage"], "#6d8bff")
-        parts.append(
-            f'<text x="{label_w - 10}" y="{y + 21}" class="fl" text-anchor="end">'
-            f"{html.escape(row['stage'])}</text>"
-            f'<rect x="{label_w}" y="{y}" width="{bar_w}" height="{row_h}" class="ftrack"/>'
-            f'<rect x="{label_w}" y="{y}" width="{width}" height="{row_h}" fill="{tint}"/>'
-            f'<text x="{label_w + bar_w + 12}" y="{y + 21}" class="fv">'
-            f"{row['reached']} · {row['pct_of_total']:.0f}%</text>"
-        )
-        # The step-conversion label sits in the gap between bars, where the drop
-        # actually happens, rather than in a column to the side.
+    for row in rows:
+        # A zero-width bar is drawn as nothing at all. The old chart floored the
+        # width at 2px, which put a visible sliver against every empty stage and
+        # made "nobody got here" look like "somebody just about did".
+        pct = row["reached"] / total * 100
+        tint = _STAGE_TINT.get(row["stage"], "#1cb0f6")
+
         if row["dropped_here"]:
+            lost = 100 - (row["pct_of_previous"] or 0)
             parts.append(
-                f'<text x="{label_w + 6}" y="{y - 1}" class="fd">'
-                f"-{row['dropped_here']} ({100 - (row['pct_of_previous'] or 0):.0f}% lost)</text>"
+                f'<div class="fdrop"><span>&minus;{row["dropped_here"]} '
+                f"&middot; {lost:.0f}% lost here</span></div>"
             )
 
-    parts.append("</svg>")
+        parts.append(
+            f'<div class="frow">'
+            f'<div class="fl">{html.escape(row["stage"])}</div>'
+            f'<div class="ftrack">'
+            f'<div class="fbar" style="width:{pct:.2f}%;background:{tint}"></div>'
+            f"</div>"
+            f'<div class="fv"><b>{row["reached"]}</b>'
+            f"<span>{row['pct_of_total']:.0f}%</span></div>"
+            f"</div>"
+        )
+
+    parts.append("</div>")
     return "".join(parts)
 
 
@@ -222,40 +230,40 @@ async def dashboard() -> HTMLResponse:
       <h2>Funnel</h2>
       <p class="sub">Conversations that ever reached each stage, as a share of all
         conversations. A lead that reached offers and then opted out still reached offers.</p>
-      {_funnel_svg(rows)}
-      <table>
+      {_funnel_chart(rows)}
+      <div class="tw"><table>
         <tr><th>stage</th><th>reached</th><th>of total</th><th>of prev</th>
             <th>lost here</th></tr>
         {funnel_rows}
-      </table>
+      </table></div>
     </section>
 
     <section>
       <h2>Where they stop, and why</h2>
       <p class="sub">Last turn of each conversation, grouped by the exit condition that fired.
         "Leaves at KYC" and "leaves at KYC after an objection" are different problems.</p>
-      <table>
+      <div class="tw"><table>
         <tr><th>stage</th><th>reason</th><th>intent</th><th>n</th></tr>
         {drop_rows}
-      </table>
+      </table></div>
     </section>
 
     <section>
       <h2>Cost by stage</h2>
       <p class="sub">Spend attributed to the stage a turn entered. Latency is mean, not p50 —
         stated because at this volume a percentile would be theatre.</p>
-      <table>
+      <div class="tw"><table>
         <tr><th>stage</th><th>turns</th><th>spend</th><th>mean latency</th><th>mean tokens</th></tr>
         {stage_rows}
-      </table>
+      </table></div>
     </section>
 
     <section>
       <h2>Recent conversations</h2>
-      <table>
+      <div class="tw"><table>
         <tr><th>id</th><th>stage</th><th>status</th><th>turns</th><th>cost</th><th>application</th></tr>
         {conv_rows}
-      </table>
+      </table></div>
     </section>
     """
     return HTMLResponse(_page("Threadkeeper · console", body))
@@ -329,7 +337,7 @@ async def inspector(conversation_id: str) -> HTMLResponse:
     body = f"""
     <p class="back"><a href="/console">← console</a></p>
     <h1>Conversation <span>{str(header["id"])[:8]}</span></h1>
-    <div class="cards">
+    <div class="cards five">
       <div><div class="k">stage</div><div class="v">{html.escape(header["stage"])}</div></div>
       <div><div class="k">status</div><div class="v">{html.escape(header["status"])}</div></div>
       <div><div class="k">turns</div><div class="v">{len(turns)}</div></div>
@@ -347,7 +355,7 @@ async def inspector(conversation_id: str) -> HTMLResponse:
 
     <section>
       <h2>What it learned</h2>
-      <table><tr><th>slot</th><th>value</th></tr>{slot_rows}</table>
+      <div class="tw"><table><tr><th>slot</th><th>value</th></tr>{slot_rows}</table></div>
     </section>
     """
     return HTMLResponse(_page(f"Conversation {str(header['id'])[:8]}", body))
@@ -358,69 +366,153 @@ def _page(title: str, body: str) -> str:
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{html.escape(title)}</title>
+<link rel="icon" type="image/png" href="{brand.FAVICON}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800\
+&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>{_CSS}</style></head>
-<body><div class="wrap">{body}
-<footer>Threadkeeper · every figure here is a query in app/obs/queries.py</footer>
+<body>
+<header class="topbar">
+  <img src="{brand.MARK}" alt="" width="34" height="34">
+  <span class="brand">Threadkeeper<small>console</small></span>
+  <nav><a href="/console">Funnel</a><a href="/sim">Simulator</a></nav>
+</header>
+<div class="wrap">{body}
+<footer>Every figure here is a query in <code>app/obs/queries.py</code></footer>
 </div></body></html>"""
 
 
 _CSS = """
-:root{--ink:#0c0e13;--ink2:#10131a;--line:#1e2431;--text:#e7e5df;--dim:#6d7484;
-      --text2:#a6acba;--accent:#9db4ff;--ok:#7fb98f;--warn:#e0a24a;--bad:#e07a7a;
-      --mono:ui-monospace,SFMono-Regular,Menlo,monospace}
+/* Same system as /sim: Nunito, light paper, chunky borders, pressable edges.
+   Two pages of one product should not look like two products. */
+:root{
+  --paper:#ffffff; --bg:#f2f5f7; --panel:#f7f9fa; --ink-deep:#06242c;
+  --ink:#3c3c3c; --ink-2:#5a5a5a; --dim:#9aa0a6;
+  --line:#e5e7eb; --line-2:#d4d8dd;
+  --green:#58cc02; --green-d:#46a302; --blue:#1cb0f6; --blue-d:#1899d6;
+  --gold:#ffc800; --gold-d:#a67c00; --red:#ff4b4b; --red-d:#c81e1e; --purple:#ce82ff;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --sans:"Nunito",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+}
 *{box-sizing:border-box}
-body{margin:0;background:var(--ink);color:var(--text);font:400 14px/1.6 -apple-system,
-     BlinkMacSystemFont,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
-.wrap{max-width:960px;margin:0 auto;padding:44px 28px 90px}
-a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
-h1{font-size:30px;font-weight:500;margin:0 0 26px;letter-spacing:-.4px}
-h1 span{color:var(--dim);font-weight:300}
-h2{font-size:17px;font-weight:500;margin:0 0 4px}
-.back{margin:0 0 14px;font-size:12px}
-section{margin-top:46px;border-top:1px solid var(--line);padding-top:22px}
-.sub{color:var(--dim);font-size:12.5px;margin:0 0 18px;max-width:70ch}
-.sub.note{margin-top:12px}
-.sub code{font-family:var(--mono);color:var(--text2)}
-.cards{display:flex;flex-wrap:wrap;gap:1px;background:var(--line);border:1px solid var(--line)}
-.cards>div{background:var(--ink2);padding:12px 15px;flex:1 1 120px}
-.cards .k{font:400 9px/1 var(--mono);letter-spacing:.15em;text-transform:uppercase;color:var(--dim)}
-.cards .v{font-size:17px;margin-top:6px}
-table{width:100%;border-collapse:collapse;margin-top:16px;font-size:13px}
-th,td{text-align:left;padding:8px 12px 8px 0;border-bottom:1px solid var(--line)}
-th{font:400 9px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
-td{color:var(--text2)}td:first-child{color:var(--text)}
-.empty{color:var(--dim);font-style:italic}
-.funnel{width:100%;height:auto;margin:6px 0 4px;overflow:visible}
-.funnel .ftrack{fill:#161a24}
-.funnel .fl{font:400 12px var(--mono);fill:var(--text2)}
-.funnel .fv{font:400 12px var(--mono);fill:var(--text)}
-.funnel .fd{font:400 9.5px var(--mono);fill:var(--warn)}
-.pill{font:400 10px var(--mono);padding:2px 7px;border:1px solid var(--line);color:var(--dim)}
-.pill.escalated{color:var(--warn);border-color:rgba(224,162,74,.4)}
-.pill.opted_out{color:var(--bad);border-color:rgba(224,122,122,.4)}
-.pill.active{color:var(--ok);border-color:rgba(127,185,143,.35)}
-.turn{border:1px solid var(--line);background:var(--ink2);margin-bottom:11px}
-.turn-h{display:flex;flex-wrap:wrap;gap:11px;align-items:center;padding:9px 14px;
-        border-bottom:1px solid var(--line);font:400 11px var(--mono)}
+body{margin:0;background:var(--bg);color:var(--ink);
+     font:400 15px/1.6 var(--sans);-webkit-font-smoothing:antialiased}
+a{color:var(--blue-d);text-decoration:none;font-weight:700}
+a:hover{text-decoration:underline}
+code{font-family:var(--mono);font-size:.88em;color:var(--blue-d);
+     background:rgba(28,176,246,.09);padding:1px 5px;border-radius:5px}
+
+/* ---- top bar ---- */
+.topbar{display:flex;align-items:center;gap:12px;padding:12px 22px;background:var(--ink-deep)}
+.topbar img{flex-shrink:0}
+.topbar .brand{font-weight:800;font-size:16px;color:#fff;line-height:1.15}
+.topbar .brand small{display:block;font:500 9.5px/1 var(--mono);letter-spacing:.16em;
+  text-transform:uppercase;color:rgba(255,255,255,.6);margin-top:3px}
+.topbar nav{margin-left:auto;display:flex;gap:8px}
+.topbar nav a{color:rgba(255,255,255,.92);font-weight:800;font-size:12px;
+  letter-spacing:.03em;text-transform:uppercase;padding:7px 13px;border-radius:11px;
+  border:2px solid rgba(255,255,255,.22);border-bottom-width:3px}
+.topbar nav a:hover{background:rgba(255,255,255,.1);text-decoration:none}
+
+.wrap{max-width:1000px;margin:0 auto;padding:34px 24px 90px}
+h1{font-size:30px;font-weight:800;margin:0 0 22px;letter-spacing:-.5px}
+h1 span{color:var(--dim);font-weight:700}
+h2{font-size:19px;font-weight:800;margin:0 0 6px;letter-spacing:-.2px}
+.back{margin:0 0 16px;font-size:13px}
+section{margin-top:38px;background:var(--paper);border:2px solid var(--line);
+        border-radius:18px;padding:22px 24px 26px}
+.sub{color:var(--ink-2);font-size:13.5px;margin:0 0 18px;max-width:74ch}
+.sub.note{margin:14px 0 0;padding:14px 16px;background:var(--paper);
+          border:2px solid var(--line);border-radius:14px}
+
+/* ---- stat cards ----
+   A grid, not a flex row. Flex let each card size to its own content, so the
+   two with wrapping labels ("per conversation", "per closed sale") pushed
+   their values a line lower than the rest and the numbers stopped sharing a
+   baseline. Equal columns plus a fixed label height fixes both. */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px}
+/* Card count decides the minimum: seven cards at 210px land 4+3, five at
+   168px land in one row. auto-fit alone cannot know how many are coming, and
+   a single minimum leaves one page or the other with an orphan. */
+.cards.five{grid-template-columns:repeat(auto-fit,minmax(168px,1fr))}
+.cards>div{background:var(--paper);border:2px solid var(--line);border-radius:14px;
+           padding:13px 15px 15px;min-width:0}
+.cards .k{font:500 9px/1.35 var(--mono);letter-spacing:.14em;text-transform:uppercase;
+          color:var(--dim);min-height:2.7em}
+.cards .v{font-size:21px;font-weight:800;margin-top:4px;letter-spacing:-.4px;
+          white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ---- funnel ---- */
+.funnel{margin:20px 0 6px}
+.frow{display:grid;grid-template-columns:118px minmax(0,1fr) 88px;
+      align-items:center;gap:14px;padding:5px 0}
+.fl{font:500 12.5px var(--mono);color:var(--ink-2);text-align:right;
+    overflow:hidden;text-overflow:ellipsis}
+.ftrack{height:30px;background:var(--panel);border:2px solid var(--line);
+        border-radius:9px;overflow:hidden}
+.fbar{height:100%;border-radius:0;transition:width .3s ease}
+.fv{font:500 12.5px var(--mono);color:var(--ink);white-space:nowrap}
+.fv b{font-weight:700} .fv span{color:var(--dim);margin-left:7px}
+/* The drop-off sits on its own line between bars, aligned to the track, rather
+   than being squeezed into the gap where it used to collide with the bar above. */
+.fdrop{display:grid;grid-template-columns:118px minmax(0,1fr) 88px;gap:14px;padding:1px 0}
+.fdrop span{grid-column:2;font:500 10.5px var(--mono);color:var(--gold-d);
+            background:rgba(255,200,0,.16);border-radius:6px;padding:2px 8px;justify-self:start}
+
+/* ---- tables ---- */
+/* Tables scroll inside their own box. 'Recent conversations' is six columns
+   and does not fit a phone; unwrapped, it widened the whole document, which
+   shifts the page margins and makes every other section look broken too. */
+.tw{overflow-x:auto;margin-top:16px;-webkit-overflow-scrolling:touch}
+table{width:100%;min-width:440px;border-collapse:collapse;font-size:13.5px}
+th,td{text-align:left;padding:9px 12px 9px 0;border-bottom:2px solid var(--line)}
+th{font:500 9px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+td{color:var(--ink-2)} td:first-child{color:var(--ink);font-weight:700}
+tr:last-child td{border-bottom:none}
+.empty{color:var(--dim);font-style:italic;font-weight:400}
+
+/* ---- pills ---- */
+.pill{font:700 10px var(--mono);padding:3px 9px;border-radius:99px;
+      border:2px solid var(--line-2);color:var(--ink-2);text-transform:uppercase}
+.pill.escalated{color:var(--gold-d);border-color:rgba(255,200,0,.55);background:rgba(255,200,0,.13)}
+.pill.opted_out{color:var(--red-d);border-color:rgba(255,75,75,.45);background:rgba(255,75,75,.09)}
+.pill.active{color:var(--green-d);border-color:rgba(88,204,2,.45);background:rgba(88,204,2,.1)}
+.pill.won{color:var(--green-d);border-color:rgba(88,204,2,.45);background:rgba(88,204,2,.1)}
+
+/* ---- conversation replay ---- */
+.turn{border:2px solid var(--line);border-radius:14px;background:var(--paper);
+      margin-bottom:12px;overflow:hidden}
+.turn-h{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:10px 15px;
+        border-bottom:2px solid var(--line);background:var(--panel);
+        font:500 11px var(--mono)}
 .turn-h .n{color:var(--dim)}
-.turn-h .stages{color:var(--text)}
+.turn-h .stages{color:var(--ink);font-weight:700}
 .turn-h .arrow{color:var(--dim);padding:0 2px}
-.turn-h .arrow.moved{color:var(--accent)}
+.turn-h .arrow.moved{color:var(--blue-d)}
 .turn-h .reason{color:var(--dim)}
-.turn-h .intent{color:var(--accent);border:1px solid rgba(157,180,255,.3);padding:1px 6px}
-.turn-h .held{color:var(--warn)}
-.turn-h .degraded{color:var(--bad)}
-.msg{padding:9px 14px;font-size:13.5px;border-bottom:1px solid var(--line)}
-.msg.cust{color:var(--text)}
-.msg.cust::before{content:"customer ";font:400 9px var(--mono);letter-spacing:.14em;
-                  text-transform:uppercase;color:var(--dim);display:block;margin-bottom:4px}
-.msg.agent{color:var(--text2)}
-.msg.agent::before{content:"agent ";font:400 9px var(--mono);letter-spacing:.14em;
-                   text-transform:uppercase;color:var(--dim);display:block;margin-bottom:4px}
-.meta{padding:7px 14px;font:400 10.5px var(--mono);color:var(--dim)}
-.tool{border:1px solid var(--line);padding:1px 6px;margin-left:7px;color:var(--accent)}
-.tool.bad{color:var(--bad);border-color:rgba(224,122,122,.4)}
-footer{margin-top:70px;padding-top:18px;border-top:1px solid var(--line);
-       font:400 10.5px var(--mono);color:var(--dim)}
-@media (max-width:640px){.wrap{padding:28px 16px 60px}}
+.turn-h .intent{color:var(--blue-d);background:rgba(28,176,246,.11);
+                border-radius:6px;padding:2px 7px}
+.turn-h .held{color:var(--gold-d)} .turn-h .degraded{color:var(--red-d)}
+.msg{padding:11px 15px;font-size:14px;border-bottom:2px solid var(--line)}
+.msg::before{font:500 9px var(--mono);letter-spacing:.14em;text-transform:uppercase;
+             color:var(--dim);display:block;margin-bottom:5px}
+.msg.cust{color:var(--ink);font-weight:600}
+.msg.cust::before{content:"customer"}
+.msg.agent{color:var(--ink-2)}
+.msg.agent::before{content:"agent"}
+.meta{padding:9px 15px;font:500 10.5px var(--mono);color:var(--dim);background:var(--panel)}
+.tool{border:2px solid var(--line-2);border-radius:6px;padding:1px 6px;margin-left:7px;
+      color:var(--blue-d)}
+.tool.bad{color:var(--red-d);border-color:rgba(255,75,75,.45)}
+
+footer{margin-top:44px;padding-top:20px;border-top:2px solid var(--line);
+       font:500 11px var(--mono);color:var(--dim)}
+@media (max-width:640px){
+  .wrap{padding:24px 15px 60px}
+  section{padding:18px 16px 20px;border-radius:14px}
+  .frow,.fdrop{grid-template-columns:84px minmax(0,1fr) 70px;gap:9px}
+  .fl,.fv{font-size:11px}
+  .topbar{padding:10px 14px}
+}
 """

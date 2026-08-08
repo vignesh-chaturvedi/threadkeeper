@@ -167,10 +167,25 @@ async def get_thread(phone: str = "919876543210") -> dict[str, Any]:
     }
 
 
+def _clock_guard() -> None:
+    """Refusing on purpose is a 403, not a 500.
+
+    It previously raised ClockSkipRefused out of the handler, which FastAPI
+    turned into an opaque Internal Server Error — a working safety guard that
+    reported itself as a bug, and sent whoever hit it looking for one.
+    """
+    if not get_settings().allow_clock_skip:
+        raise HTTPException(
+            status_code=403,
+            detail="clock skipping is disabled here; set TK_DEMO_SANDBOX on a sandbox",
+        )
+
+
 @router.post("/api/clock/skip")
 async def skip_clock(hours: float = 3.0) -> dict[str, Any]:
     """Jump the demo clock forward. Nobody waits three days to see a nudge."""
     _guard()
+    _clock_guard()
     offset = await clock.skip(timedelta(hours=hours))
     return {
         "offset_hours": round(offset.total_seconds() / 3600, 2),
@@ -181,6 +196,7 @@ async def skip_clock(hours: float = 3.0) -> dict[str, Any]:
 @router.post("/api/clock/reset")
 async def reset_clock() -> dict[str, Any]:
     _guard()
+    _clock_guard()
     await clock.reset()
     return {"offset_hours": 0.0, "now": (await clock.now()).isoformat()}
 

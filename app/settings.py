@@ -314,6 +314,22 @@ class Settings(BaseSettings):
         return self.enable_simulator and (self.env in ("local", "test") or self.demo_sandbox)
 
     @property
+    def allow_clock_skip(self) -> bool:
+        """Whether the demo clock may be moved by an HTTP call.
+
+        Same rule as `mount_simulator`, and for the same reason. `TK_ENV=prod`
+        is doing two jobs on a free host — "enforce the production secret
+        checks" and "this is the real deployment" — and only the first is true
+        of a sandbox. `demo_sandbox` is the flag that separates them, so it
+        governs the clock too; otherwise the drop-off-skip-nudge demo, which is
+        the entire point of the scheduler, cannot be shown on the deployed link.
+
+        A movable clock still never ships without that flag: the default is off,
+        and every other production guard is unaffected by it.
+        """
+        return self.env in ("local", "test") or self.demo_sandbox
+
+    @property
     def verify_signatures(self) -> bool:
         """No secret configured locally means no signature to check against."""
         return bool(self.whatsapp_app_secret)

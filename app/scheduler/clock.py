@@ -8,9 +8,16 @@ The offset lives in **Redis, not a process variable**, because the API and the
 worker are different containers. A skip triggered from the simulator has to be
 visible to the worker or the demo shows nothing.
 
-Guarded to local and test. In staging or prod `skip()` refuses and `now()` is
-`datetime.now(UTC)` with no indirection worth thinking about — a schedulable
-system whose clock can be moved by an HTTP call is not one you deploy.
+Guarded. `skip()` refuses and `now()` is `datetime.now(UTC)` with no indirection
+worth thinking about — a schedulable system whose clock can be moved by an HTTP
+call is not one you deploy.
+
+The exception is a deliberate sandbox. `TK_ENV=prod` does two jobs on a free
+host: it enforces the production secret checks, and it declares "this is the
+real deployment". Only the first is true of a demo, so `TK_DEMO_SANDBOX` is what
+separates them, and it governs the clock as well as the simulator. Without that
+flag the guard is exactly as it was; the rule itself lives in
+`settings.allow_clock_skip` so it is stated once rather than in each caller.
 """
 
 from __future__ import annotations
@@ -31,7 +38,7 @@ class ClockSkipRefused(RuntimeError):
 
 
 def _enabled() -> bool:
-    return get_settings().env in ("local", "test")
+    return get_settings().allow_clock_skip
 
 
 async def offset() -> timedelta:

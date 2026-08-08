@@ -16,6 +16,7 @@ import inspect
 
 import pytest
 
+from app.ingress import simulator
 from app.main import lifespan
 from app.scheduler import worker
 from app.settings import DEV_VAULT_KEY, Settings
@@ -143,3 +144,31 @@ def test_lifespan_cancels_the_worker_before_draining_turns() -> None:
     cancel_at = src.index("worker_task.cancel()")
     drain_at = src.index("coalesce.drain")
     assert cancel_at < drain_at, "stop claiming before draining"
+
+
+# ------------------------------------------------------------- the demo clock
+def test_clock_is_frozen_in_prod_by_default() -> None:
+    """A clock an HTTP call can move is not one you deploy."""
+    assert Settings(**PROD, demo_sandbox=False).allow_clock_skip is False
+
+
+def test_sandbox_may_move_the_clock() -> None:
+    """The drop-off → skip → nudge demo is the scheduler's entire point.
+
+    Gated on the same flag as the simulator, because the thing that makes a
+    movable clock acceptable is the same thing that makes forged traffic
+    acceptable: someone declared this deployment a toy.
+    """
+    assert Settings(**PROD, demo_sandbox=True).allow_clock_skip is True
+
+
+def test_clock_moves_freely_in_local_and_test() -> None:
+    for env in ("local", "test"):
+        assert Settings(env=env, demo_sandbox=False).allow_clock_skip is True
+
+
+def test_refusing_the_clock_is_not_a_server_error() -> None:
+    """The guard has to report itself as a refusal, not as a crash."""
+    src = inspect.getsource(simulator._clock_guard)
+    assert "403" in src
+    assert "HTTPException" in src

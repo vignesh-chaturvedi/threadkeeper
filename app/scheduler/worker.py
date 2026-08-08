@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import signal
+import time
 from typing import Any
 
 from app import cache, db
@@ -32,8 +33,7 @@ from app.settings import get_settings
 
 log = get_logger(__name__)
 
-POLL_INTERVAL_S = 2.0
-RECONCILE_EVERY_TICKS = 150  # ~5 minutes at a 2s poll
+RECONCILE_INTERVAL_S = 300.0  # ~5 minutes, regardless of how fast we poll
 
 
 async def process(job: dict[str, Any]) -> str:
@@ -140,7 +140,51 @@ async def tick() -> int:
     return len(jobs)
 
 
+async def poll_loop(stopping: asyncio.Event | None = None) -> None:
+    """The claim loop itself. Assumes both stores are already open.
+
+    Split out from `run` so the API process can host it as a task without also
+    inheriting the store lifecycle and the signal handlers, both of which the
+    app's own lifespan already owns. Two callers, one loop — the same shape as
+    the tool registry having an MCP door and an in-process one.
+    """
+    stopping = stopping or asyncio.Event()
+    interval = get_settings().scheduler_poll_interval_s
+
+    restored = await queue.reconcile()
+    log.info(
+        "worker_started",
+        poll_interval_s=interval,
+        restored_to_zset=restored,
+        backoff=[str(d) for d in policy.BACKOFF],
+        quiet_hours_ist=f"{policy.QUIET_START_HOUR}:00-{policy.QUIET_END_HOUR}:00",
+    )
+
+    # Reconcile on a wall-clock schedule rather than a tick count. Counting ticks
+    # was fine when the interval was a constant; with it configurable, "every 150
+    # ticks" silently becomes every 75 minutes at a 30s poll.
+    next_reconcile = time.monotonic() + RECONCILE_INTERVAL_S
+    try:
+        while not stopping.is_set():
+            try:
+                processed = await tick()
+                if processed:
+                    log.info("worker_batch", processed=processed)
+                if time.monotonic() >= next_reconcile:
+                    await queue.reconcile()
+                    next_reconcile = time.monotonic() + RECONCILE_INTERVAL_S
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("worker_tick_failed")
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(stopping.wait(), timeout=interval)
+    finally:
+        log.info("worker_stopping")
+
+
 async def run() -> None:
+    """Standalone entrypoint: owns the stores and the signals, then polls."""
     configure_logging()
     await db.open_pool()
     await cache.open_redis()
@@ -151,31 +195,9 @@ async def run() -> None:
         with contextlib.suppress(NotImplementedError):
             loop.add_signal_handler(sig, stopping.set)
 
-    restored = await queue.reconcile()
-    log.info(
-        "worker_started",
-        poll_interval_s=POLL_INTERVAL_S,
-        restored_to_zset=restored,
-        backoff=[str(d) for d in policy.BACKOFF],
-        quiet_hours_ist=f"{policy.QUIET_START_HOUR}:00-{policy.QUIET_END_HOUR}:00",
-    )
-
-    ticks = 0
     try:
-        while not stopping.is_set():
-            try:
-                processed = await tick()
-                if processed:
-                    log.info("worker_batch", processed=processed)
-                ticks += 1
-                if ticks % RECONCILE_EVERY_TICKS == 0:
-                    await queue.reconcile()
-            except Exception:
-                log.exception("worker_tick_failed")
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(stopping.wait(), timeout=POLL_INTERVAL_S)
+        await poll_loop(stopping)
     finally:
-        log.info("worker_stopping")
         await cache.close_redis()
         await db.close_pool()
 

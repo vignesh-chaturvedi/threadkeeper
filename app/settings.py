@@ -243,10 +243,40 @@ class Settings(BaseSettings):
         ),
     )
 
+    # --- single-process deployment -----------------------------------------
+    run_worker_in_process: bool = Field(
+        default=False,
+        description=(
+            "Run the follow-up worker as a task inside the API process instead of "
+            "as its own service. False everywhere that can afford two processes — "
+            "the split is the real architecture, and one process means a busy turn "
+            "and a due nudge now compete for the same event loop."
+        ),
+    )
+    scheduler_poll_interval_s: float = Field(
+        default=2.0,
+        gt=0,
+        description=(
+            "How often the worker asks whether anything is due. Each tick costs two "
+            "Redis reads, so 2s is ~2.6M commands/month — over a free tier's budget. "
+            "Raising it delays a nudge by at most the interval and costs nothing else, "
+            "because Postgres is the record of truth."
+        ),
+    )
+
     # --- local tooling -----------------------------------------------------
     enable_simulator: bool = Field(
         default=True,
         description="Mounts /sim, the fake WhatsApp client. Forced off outside local/test.",
+    )
+    demo_sandbox: bool = Field(
+        default=False,
+        description=(
+            "Deliberately mounts /sim on a deployed environment. This is a public "
+            "endpoint that forges inbound traffic and spends model quota, so it is a "
+            "separate opt-in rather than a relaxation of enable_simulator — the "
+            "default stays off and someone has to mean it."
+        ),
     )
 
     @model_validator(mode="after")
@@ -264,8 +294,24 @@ class Settings(BaseSettings):
                 raise ValueError("TK_CUSTOMER_REF_SECRET must be set outside local/test")
             if self.vault_key == DEV_VAULT_KEY:
                 raise ValueError("TK_VAULT_KEY must be set outside local/test")
-            object.__setattr__(self, "enable_simulator", False)
+            # The simulator forges signed inbound traffic. Deployed, that is only
+            # acceptable when someone has said so in as many words — and the
+            # secrets above are already proven real by the time we get here, so
+            # a sandbox is never running on dev defaults.
+            if not self.demo_sandbox:
+                object.__setattr__(self, "enable_simulator", False)
         return self
+
+    @property
+    def mount_simulator(self) -> bool:
+        """The whole rule, in one place.
+
+        Previously this was split between the validator and the app factory as
+        two locks on one door. A third condition made that split a liability
+        rather than a defence: two copies of a rule drift, and the one in the
+        factory would have silently vetoed a sandbox the validator allowed.
+        """
+        return self.enable_simulator and (self.env in ("local", "test") or self.demo_sandbox)
 
     @property
     def verify_signatures(self) -> bool:

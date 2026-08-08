@@ -86,12 +86,22 @@ running" has an answer. It applies the infrastructure, checks the four secrets
 Terraform creates *empty*, runs migrations as a one-shot task, then rolls both
 services and waits for stability.
 
-| | AWS (`infra/`) | Fly.io (`fly.toml`) |
-|---|---|---|
-| What it is | The reference architecture | The link you can click |
-| TLS | No — needs a domain and a certificate to own | Free on `*.fly.dev` |
-| Cost | ~$50–70/month (RDS + ElastiCache + 3 Fargate tasks + ALB) | ~$5–10/month |
-| Applied? | **No.** Validated, never `apply`ed — see below | — |
+| | AWS (`infra/`) | Fly.io (`fly.toml`) | Free tier |
+|---|---|---|---|
+| What it is | The reference architecture | Same image, one command | The link you can click |
+| Services | api + worker | api + worker | one process |
+| TLS | No — needs a domain to own | Free on `*.fly.dev` | Free |
+| Cost | ~$50–70/mo (RDS + ElastiCache + 3 Fargate tasks + ALB) | ~$10–15/mo | **$0** |
+| Applied? | **No.** Validated, never `apply`ed — see below | — | yes |
+
+**On the free path.** Fly.io ended free allowances for new organizations on 7
+Oct 2024, so "deploy it somewhere free" now means assembling it: Postgres and
+pgvector on Neon, Redis on Upstash, the container on a Render free web service.
+That host gives you *one* process and a metered Redis, which is what
+`TK_RUN_WORKER_IN_PROCESS` and `TK_SCHEDULER_POLL_INTERVAL_S` exist for — the
+worker becomes a task inside the API, and the poll drops from 2s to 30s so the
+scheduler fits in 500K Redis commands a month. Both default to the real topology;
+neither changes what the Terraform describes.
 
 **The honest bullet:** the Terraform is written, `tofu validate`-clean and
 `fmt`-clean, and it has never been applied. Applying it costs real money against

@@ -23,7 +23,7 @@ def get_provider() -> ModelProvider:
     """
     settings = get_settings()
     if settings.llm_provider == "gemini":
-        if settings.gemini_api_key:
+        if settings.gemini_key_pool:
             return GeminiProvider()
         log.warning("llm_provider_fallback", requested="gemini", reason="no_api_key")
     return FakeProvider()

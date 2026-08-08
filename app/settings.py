@@ -99,6 +99,14 @@ class Settings(BaseSettings):
         description="'fake' is deterministic and offline — the default so tests never spend money.",
     )
     gemini_api_key: str = ""
+    gemini_api_keys: str = Field(
+        default="",
+        description=(
+            "Comma-separated additional keys. The rate limit that matters here is "
+            "per key, not per project, so N keys is N times the throughput an eval "
+            "run can use. Falls back to the single key above when empty."
+        ),
+    )
     gemini_api_base: str = "https://generativelanguage.googleapis.com/v1beta"
     gemini_reply_model: str = "gemini-3.5-flash-lite"
     gemini_extract_model: str = Field(
@@ -114,7 +122,26 @@ class Settings(BaseSettings):
         description=(
             "Client-side requests-per-minute cap, 0 to disable. The eval suite "
             "fires hundreds of calls in a burst and will otherwise trip the "
-            "provider's rate limit — which costs a whole run, not one call."
+            "provider's rate limit — which costs a whole run, not one call. "
+            "Applied per key, because that is how the provider applies it."
+        ),
+    )
+    llm_max_rpd: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Per-key requests-per-day cap, 0 to disable. A key that has spent its "
+            "day should leave the pool rather than contribute 429s to every "
+            "subsequent call — the failure a burst-shaped run hits second."
+        ),
+    )
+    llm_key_cooldown_s: float = Field(
+        default=60.0,
+        ge=0.0,
+        description=(
+            "How long a key sits out after the provider 429s it. Long enough to "
+            "outlast the window that refused it; short enough that a one-off "
+            "does not retire the key for the run."
         ),
     )
     llm_timeout_s: float = 20.0
@@ -254,6 +281,22 @@ class Settings(BaseSettings):
     def psycopg_url(self) -> str:
         """Raw libpq URL for psycopg / the LangGraph checkpointer."""
         return str(self.database_url)
+
+    @property
+    def gemini_key_pool(self) -> list[str]:
+        """Every configured key, in order, deduplicated.
+
+        Deduplication is correctness, not tidiness. The rate limiter budgets one
+        window per pool entry, so the same key listed twice looks like twice the
+        quota and spends the run collecting 429s it was built to avoid — and a
+        copy-pasted `.env` is exactly where that happens.
+        """
+        seen: dict[str, None] = {}
+        for raw in [self.gemini_api_key, *self.gemini_api_keys.split(",")]:
+            key = raw.strip()
+            if key:
+                seen.setdefault(key, None)
+        return list(seen)
 
 
 @lru_cache(maxsize=1)

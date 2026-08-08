@@ -17,60 +17,19 @@ from __future__ import annotations
 import asyncio
 import json
 import secrets
-import time
 from contextvars import ContextVar
 from typing import Any
 
 import httpx
 
 from app.llm.base import Embedding, Extraction, ModelError, Reply, Usage
+from app.llm.keypool import KeyPool
 from app.logging import get_logger
 from app.settings import get_settings
 
 log = get_logger(__name__)
 
 _RETRYABLE = {408, 429, 500, 502, 503, 504}
-
-
-class _RateLimiter:
-    """A client-side requests-per-minute cap.
-
-    Retrying a 429 is the wrong shape of fix on its own: by the time the
-    provider refuses, the burst has already happened and every concurrent call
-    is refused together. Pacing at the source is what keeps a 240-call eval run
-    inside the limit — the retry logic below is for the calls that slip through
-    anyway.
-
-    Deliberately a simple sliding window rather than a token bucket: the
-    behaviour under a burst is easier to reason about, and this only has to be
-    correct within one process.
-    """
-
-    def __init__(self) -> None:
-        self._times: list[float] = []
-        self._lock = asyncio.Lock()
-
-    async def acquire(self, max_rpm: int) -> None:
-        if max_rpm <= 0:
-            return
-        async with self._lock:
-            now = time.monotonic()
-            self._times = [t for t in self._times if now - t < 60.0]
-            if len(self._times) >= max_rpm:
-                wait = 60.0 - (now - self._times[0]) + 0.05
-                log.info("llm_rate_limited", waiting_s=round(wait, 2), max_rpm=max_rpm)
-                # Time spent deliberately sleeping is not time the model took.
-                # Without this the console reported a 50-second turn at consent,
-                # which was 47 seconds of our own throttle and looked like a
-                # pathological model call.
-                try:
-                    _throttle.get()["ms"] += int(wait * 1000)
-                except LookupError:
-                    pass
-                await asyncio.sleep(wait)
-                now = time.monotonic()
-                self._times = [t for t in self._times if now - t < 60.0]
-            self._times.append(now)
 
 
 # Per-turn throttle accounting, held in a *mutable* box on purpose.
@@ -98,7 +57,40 @@ def throttled_ms() -> int:
         return 0
 
 
-_limiter = _RateLimiter()
+def _record_wait(seconds: float) -> None:
+    """Charge our own pacing to the turn's throttle account, not to the model.
+
+    Without this the console reported a 50-second turn at consent, 47 seconds of
+    which was this project's own throttle — and "which stage is slow" became
+    unanswerable.
+    """
+    if seconds <= 0:
+        return
+    try:
+        _throttle.get()["ms"] += int(seconds * 1000)
+    except LookupError:
+        # Nobody opened an account — a direct provider call outside a turn.
+        pass
+
+
+_pool: KeyPool | None = None
+_pool_keys: tuple[str, ...] = ()
+
+
+def get_pool() -> KeyPool:
+    """The process-wide pool, rebuilt only when the configured keys change.
+
+    Module-level rather than per-provider: two provider instances sharing a key
+    would otherwise each believe they had the whole limit, and together spend
+    twice it.
+    """
+    global _pool, _pool_keys
+    keys = tuple(get_settings().gemini_key_pool)
+    if _pool is None or keys != _pool_keys:
+        _pool, _pool_keys = KeyPool(list(keys)), keys
+        if keys:
+            log.info("llm_key_pool", size=len(keys), fingerprints=_pool.fingerprints)
+    return _pool
 
 
 class GeminiProvider:
@@ -106,7 +98,6 @@ class GeminiProvider:
 
     def __init__(self) -> None:
         settings = get_settings()
-        self._key = settings.gemini_api_key
         self._base = settings.gemini_api_base
         self._reply_model = settings.gemini_reply_model
         self._extract_model = settings.gemini_extract_model
@@ -117,15 +108,23 @@ class GeminiProvider:
     async def _post(
         self, model: str, body: dict[str, Any], endpoint: str = "generateContent"
     ) -> dict[str, Any]:
-        if not self._key:
-            raise ModelError("TK_GEMINI_API_KEY is not set")
+        pool, settings = get_pool(), get_settings()
+        if not len(pool):
+            raise ModelError("no Gemini key configured — set TK_GEMINI_API_KEY")
 
         url = f"{self._base}/models/{model}:{endpoint}"
-        headers = {"x-goog-api-key": self._key, "content-type": "application/json"}
         last: str = "unknown"
 
         for attempt in range(1, self._max_attempts + 1):
-            await _limiter.acquire(get_settings().llm_max_rpm)
+            try:
+                lease, waited = await pool.acquire(
+                    max_rpm=settings.llm_max_rpm, max_rpd=settings.llm_max_rpd
+                )
+            except RuntimeError as exc:  # every key spent its daily quota
+                raise ModelError(str(exc)) from exc
+            _record_wait(waited)
+
+            headers = {"x-goog-api-key": lease.key, "content-type": "application/json"}
             try:
                 async with httpx.AsyncClient(timeout=self._timeout) as client:
                     resp = await client.post(url, json=body, headers=headers)
@@ -137,15 +136,28 @@ class GeminiProvider:
                 if resp.status_code == 200:
                     return resp.json()
                 last = f"{resp.status_code}: {resp.text[:200]}"
-                if resp.status_code not in _RETRYABLE:
+                if resp.status_code == 429:
+                    # This key is refusing, not the provider as a whole. Bench it
+                    # and let the next attempt land on a different one — with a
+                    # pool, a 429 is a routing event rather than a delay.
+                    pool.penalise(lease, settings.llm_key_cooldown_s)
+                elif resp.status_code not in _RETRYABLE:
                     raise ModelError(last)
 
             if attempt < self._max_attempts:
                 # Full jitter, same reasoning as the outbound sender: a provider
                 # blip must not turn into a synchronised retry storm.
                 delay = min(2.0**attempt, 8.0) * (secrets.randbelow(1000) / 1000)
-                log.warning("llm_retry", model=model, attempt=attempt, error=last)
+                log.warning(
+                    "llm_retry",
+                    model=model,
+                    attempt=attempt,
+                    error=last,
+                    key_index=lease.index,
+                    key_fp=lease.fp,
+                )
                 await asyncio.sleep(delay)
+                _record_wait(delay)
 
         raise ModelError(f"gemini failed after {self._max_attempts} attempts — {last}")
 

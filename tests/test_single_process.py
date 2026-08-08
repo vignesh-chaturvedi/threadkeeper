@@ -18,7 +18,7 @@ import pytest
 
 from app.main import lifespan
 from app.scheduler import worker
-from app.settings import Settings
+from app.settings import DEV_VAULT_KEY, Settings
 
 # The vault key is the one test_ingress_unit.py already uses, reused rather than
 # reinvented: .gitleaks.toml sanctions it by name, and its own rule for that list
@@ -33,13 +33,26 @@ PROD = {
 }
 
 
+# Every Settings(...) below passes each field it asserts on, and the defaults
+# test reads the declared default rather than instantiating. `Settings` resolves
+# from the process environment and `.env` as well as its arguments, so a test
+# that omits a field is asserting against whatever the machine happens to export
+# — which is how this file first went green locally and red in CI, where the
+# workflow generates an ephemeral TK_VAULT_KEY. Same lesson as 50b02e6.
+
+
 # ------------------------------------------------------------------ defaults
 def test_both_flags_are_off_by_default() -> None:
-    """Nothing about the normal deployment changes because these exist."""
-    s = Settings()
-    assert s.run_worker_in_process is False
-    assert s.demo_sandbox is False
-    assert s.scheduler_poll_interval_s == 2.0
+    """Nothing about the normal deployment changes because these exist.
+
+    Asserted against the declared defaults, not an instance: an instance would
+    happily report whatever a developer put in their `.env`, and the claim here
+    is about what the code ships with.
+    """
+    fields = Settings.model_fields
+    assert fields["run_worker_in_process"].default is False
+    assert fields["demo_sandbox"].default is False
+    assert fields["scheduler_poll_interval_s"].default == 2.0
 
 
 def test_poll_interval_must_be_positive() -> None:
@@ -50,19 +63,20 @@ def test_poll_interval_must_be_positive() -> None:
 
 # ----------------------------------------------------------- simulator rule
 def test_simulator_mounts_locally() -> None:
-    assert Settings(env="local").mount_simulator is True
+    s = Settings(env="local", enable_simulator=True, demo_sandbox=False)
+    assert s.mount_simulator is True
 
 
 def test_prod_refuses_the_simulator_by_default() -> None:
     """The existing guarantee. A deployed /sim is a forged-traffic endpoint."""
-    s = Settings(**PROD)
-    assert s.enable_simulator is False
+    s = Settings(**PROD, enable_simulator=True, demo_sandbox=False)
+    assert s.enable_simulator is False, "prod must force it off"
     assert s.mount_simulator is False
 
 
 def test_sandbox_opt_in_mounts_it_in_prod() -> None:
     """...and only when someone set the flag whose name says what it does."""
-    s = Settings(**PROD, demo_sandbox=True)
+    s = Settings(**PROD, enable_simulator=True, demo_sandbox=True)
     assert s.mount_simulator is True
 
 
@@ -70,13 +84,16 @@ def test_sandbox_does_not_bypass_the_secret_checks() -> None:
     """The opt-in relaxes exactly one thing, and it is not the credentials.
 
     A sandbox running on the shipped dev vault key would be a public endpoint
-    tokenizing PII under a key that is in the repository.
+    tokenizing PII under a key that is in the repository. `DEV_VAULT_KEY` is
+    passed explicitly rather than left to default: CI exports a real one, so
+    omitting it tests the runner's environment instead of the validator.
     """
     with pytest.raises(ValueError, match="TK_VAULT_KEY"):
         Settings(
             env="prod",
             whatsapp_app_secret="real-secret",
             customer_ref_secret="real-ref-secret",
+            vault_key=DEV_VAULT_KEY,
             demo_sandbox=True,
         )
 

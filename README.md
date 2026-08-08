@@ -1,21 +1,36 @@
-# Threadkeeper
+<div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/brand/threadkeeper-logo-dark.png">
+  <img src="docs/brand/threadkeeper-logo.png" alt="Threadkeeper" width="420">
+</picture>
 
 **A durable, resumable conversational sales agent for an Indian lending funnel.**
+
 WhatsApp in, mock lender APIs out, and state that survives nine days of silence.
+
+[**Try the live sandbox →**](https://threadkeeper.onrender.com/sim) &nbsp;·&nbsp;
+[Funnel console](https://threadkeeper.onrender.com/console) &nbsp;·&nbsp;
+[Design decisions](#six-decisions-and-what-i-rejected)
+
+[![CI](https://github.com/vignesh-chaturvedi/threadkeeper/actions/workflows/ci.yml/badge.svg)](https://github.com/vignesh-chaturvedi/threadkeeper/actions/workflows/ci.yml)
+
+</div>
+
+---
 
 > The model decides what to **say** inside a stage. A deterministic graph decides
 > when a stage **changes**. Consent and KYC are not things you let a ReAct loop
 > improvise.
 
 Zero real customer data, zero lender partnerships — every external API is a mock
-written in this repo.
+written in this repo. The sandbox above is a **real deployment of this code** —
+mock outbound, no real PII, and rate-limited. It sleeps after 15 minutes idle, so
+the first request may take a minute to wake it.
 
 ---
 
 ## Run it
-
-[![CI](https://github.com/vignesh-chaturvedi/threadkeeper/actions/workflows/ci.yml/badge.svg)](https://github.com/vignesh-chaturvedi/threadkeeper/actions/workflows/ci.yml)
-
 
 ```bash
 cp .env.example .env
